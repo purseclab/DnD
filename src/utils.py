@@ -12,6 +12,40 @@ import operator
 import functools
 
 
+def get_succ(proj, f_addr):
+    '''
+    Get the addr of callees of function
+    '''
+    return list(proj.cfg.kb.functions.callgraph.successors(f_addr))
+
+
+def get_pred(proj, f_addr):
+    '''
+    Get the addr of callers of function
+    '''
+    return list(proj.cfg.kb.functions.callgraph.predecessors(f_addr))
+
+
+def has_math_func(proj, f_addr):
+    '''
+    Check if the function has libc math function
+    '''
+    succ = get_succ(proj, f_addr)
+    for s in succ:
+        if s in proj.cfg.kb.functions and proj.cfg.kb.functions[s].name in MATH_FUNC_NAME:
+            return True
+    return False
+
+
+def get_loop_depth(loop):
+    '''
+    Get the maximum depth of the nested loop
+    '''
+    if not loop:
+        return 0
+    return max([get_loop_depth(l.subloops) for l in loop]) + 1
+
+
 def is_arm_arch(arch):
     if isinstance(arch, archinfo.arch_arm.ArchARMEL) or isinstance(
             arch, archinfo.arch_arm.ArchARM) or isinstance(

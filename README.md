@@ -7,4 +7,4 @@
 </p>
 DND is the first compiler- and ISA-agnostic deep neural network (DNN) decompiler capable of extracting DNN models from compiled binaries. You can find the details in the paper published at Usenix Security 2022. 
 
-We will be pushing more code and the instructions!
+We will be pushing more code and the instructions on how to run the code.
