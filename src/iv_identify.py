@@ -162,12 +162,6 @@ def _identify_iv(proj,
         if state.addr == 0x100241 and iv_var is None:
             iv_var = state.regs.rax
 
-        '''
-        if state.addr == 0x100290:
-            from IPython import embed
-            embed()
-        '''
-
         check_before_stepping(simgr)
 
         print("before stepping:", simgr.active)

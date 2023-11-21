@@ -11,6 +11,8 @@ import struct
 import operator
 import functools
 
+# FIXME
+MATH_FUNC_NAME = []
 
 def get_succ(proj, f_addr):
     '''

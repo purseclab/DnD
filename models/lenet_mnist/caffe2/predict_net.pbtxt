@@ -1,0 +1,138 @@
+name: "mnist_deploy"
+op {
+  input: "data"
+  input: "conv1_w"
+  input: "conv1_b"
+  output: "conv1"
+  name: ""
+  type: "Conv"
+  arg {
+    name: "kernel"
+    i: 5
+  }
+  arg {
+    name: "order"
+    s: "NCHW"
+  }
+}
+op {
+  input: "conv1"
+  output: "pool1"
+  name: ""
+  type: "MaxPool"
+  arg {
+    name: "kernel"
+    i: 2
+  }
+  arg {
+    name: "use_cudnn"
+    i: 0
+  }
+  arg {
+    name: "stride"
+    i: 2
+  }
+}
+op {
+  input: "pool1"
+  input: "conv2_w"
+  input: "conv2_b"
+  output: "conv2"
+  name: ""
+  type: "Conv"
+  arg {
+    name: "kernel"
+    i: 5
+  }
+  arg {
+    name: "order"
+    s: "NCHW"
+  }
+}
+op {
+  input: "conv2"
+  output: "pool2"
+  name: ""
+  type: "MaxPool"
+  arg {
+    name: "kernel"
+    i: 2
+  }
+  arg {
+    name: "use_cudnn"
+    i: 0
+  }
+  arg {
+    name: "stride"
+    i: 2
+  }
+}
+op {
+  input: "pool2"
+  input: "fc3_w"
+  input: "fc3_b"
+  output: "fc3"
+  name: ""
+  type: "FC"
+  arg {
+    name: "use_cudnn"
+    i: 0
+  }
+  arg {
+    name: "order"
+    s: "NCHW"
+  }
+  arg {
+    name: "cudnn_exhaustive_search"
+    i: 0
+  }
+}
+op {
+  input: "fc3"
+  output: "relu3"
+  name: ""
+  type: "Relu"
+  arg {
+    name: "use_cudnn"
+    i: 0
+  }
+}
+op {
+  input: "relu3"
+  input: "pred_w"
+  input: "pred_b"
+  output: "pred"
+  name: ""
+  type: "FC"
+  arg {
+    name: "use_cudnn"
+    i: 0
+  }
+  arg {
+    name: "order"
+    s: "NCHW"
+  }
+  arg {
+    name: "cudnn_exhaustive_search"
+    i: 0
+  }
+}
+op {
+  input: "pred"
+  output: "softmax"
+  name: ""
+  type: "Softmax"
+  arg {
+    name: "use_cudnn"
+    i: 0
+  }
+}
+external_input: "data"
+external_input: "conv1_w"
+external_input: "conv1_b"
+external_input: "conv2_w"
+external_input: "conv2_b"
+external_input: "fc3_w"
+external_input: "fc3_b"
+external_input: "pred_w"
+external_input: "pred_b"
