@@ -4,7 +4,7 @@ from .utils import get_loop_depth, has_math_func, get_func_addr_from_addr, get_p
 
 def locate(proj):
     '''
-    Locate the inference function and all the operator functions
+    Locate the dispatch function and all the operator functions
     '''
     loop_finder = proj.cfg.project.analyses.LoopFinder(kb=proj.cfg.kb)
     
@@ -23,13 +23,16 @@ def locate(proj):
         
         if loop_flag or math_flag:
             cand_op_func.append(f_addr)
+    print("cand_op_func: ", [(hex(f), proj.funcs[f]) for f in cand_op_func])
                 
-    # vote for "inference function"
+    # vote for "dispatch function"
     vote_dict = defaultdict(int)
     for f_addr in cand_op_func:
         preds = [get_func_addr_from_addr(proj, p) for p in get_pred(proj, f_addr)]
+        # preds = [p for p in get_pred(proj, f_addr)]
         for p in preds:
             vote_dict[p] += 1
+    print("vote_dict: ", [(hex(k), v) for k, v in vote_dict.items()])
         
     # decide inference function
     max_count = max(vote_dict.values())

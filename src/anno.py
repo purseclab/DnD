@@ -3,10 +3,11 @@ from claripy import Annotation
 
 
 class MemReadAnnotation(Annotation):
-    def __init__(self, addr):
+    def __init__(self, addr, func_arg=None):
         super(MemReadAnnotation, self).__init__()
 
         self.addr = addr
+        self.func_arg = func_arg
 
         self._eliminatable = False
         self._relocatable = False

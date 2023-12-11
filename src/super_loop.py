@@ -8,16 +8,23 @@ from angr.analyses.loopfinder import Loop
 
 
 class SuperLoop(Loop):
-    '''
+    """
     A loop wrapper
-    '''
+    """
+
     def __init__(self, loop, func):
-        super().__init__(loop.entry, loop.entry_edges, loop.break_edges,
-                         loop.continue_edges, loop.body_nodes, loop.graph,
-                         loop.subloops)
+        super().__init__(
+            loop.entry,
+            loop.entry_edges,
+            loop.break_edges,
+            loop.continue_edges,
+            loop.body_nodes,
+            loop.graph,
+            loop.subloops,
+        )
 
         self._func = func
-        self._ret_break_blk = None
+        self._ret_break_blk = None  # break edge is ret
         self._iv = None
         self._iv_dict = None
 
@@ -26,22 +33,22 @@ class SuperLoop(Loop):
         self._check_continue_edge()
 
     def __eq__(self, other):
-        '''
+        """
         We assume that loops have different entry.
-        '''
+        """
         if self.entry == other.entry:
             return True
         return False
 
     def _check_entry_edge(self):
-        '''
+        """
         We assume exactly one entry edge.
-        There could be multiple entry blks because of 
-        angr's spliting on large basic block. 
+        There could be multiple entry blks because of
+        angr's spliting on large basic block.
         For each loop's entry block, if:
         then, they are "adjacent"
-        '''
-        assert (len(self.entry_edges) == 1)
+        """
+        assert len(self.entry_edges) == 1
 
         # collect adj blk
         self._adj_entry_blk = []
@@ -52,13 +59,13 @@ class SuperLoop(Loop):
             src_blk = pred
 
     def _check_break_edge(self):
-        '''
-        If no break edge, check if loop's break edge is return 
-        and assign _ret_break_blk. 
+        """
+        If no break edge, check if loop's break edge is return
+        and assign _ret_break_blk.
         If more than one break edge, decide the break dest blk.
-        We also decide _fake_break_edge_dest_blk_addr, which is jumping 
+        We also decide _fake_break_edge_dest_blk_addr, which is jumping
         to the real one.
-        '''
+        """
 
         # init
         self._break_edge_dest_blk_addr = None
@@ -78,15 +85,15 @@ class SuperLoop(Loop):
                 if len(blk.successors()) != 1:
                     continue
                 if blk.successors()[0].addr in [
-                        blk.addr for blk in break_edge_dest_blk_set
+                    blk.addr for blk in break_edge_dest_blk_set
                 ]:
                     fake_break_edge_dest_blk_set.add(blk)
             real_break_edge_dest_blk_set = break_edge_dest_blk_set.difference(
-                fake_break_edge_dest_blk_set)
-            assert (len(real_break_edge_dest_blk_set) == 1)
+                fake_break_edge_dest_blk_set
+            )
+            assert len(real_break_edge_dest_blk_set) == 1
 
-            self._break_edge_dest_blk_addr = list(
-                real_break_edge_dest_blk_set)[0].addr
+            self._break_edge_dest_blk_addr = list(real_break_edge_dest_blk_set)[0].addr
             self._fake_break_edge_dest_blk_addr = [
                 blk.addr for blk in fake_break_edge_dest_blk_set
             ]
@@ -102,16 +109,16 @@ class SuperLoop(Loop):
             self._ret_break_blk = break_blk_list[0]
 
             # only one break edge
-            assert (len(break_blk_list) == 1)
+            assert len(break_blk_list) == 1
 
     def _check_continue_edge(self):
-        '''
+        """
         We assume exctly one cont edge
-        '''
-        assert (len(self.continue_edges) == 1)
+        """
+        assert len(self.continue_edges) == 1
 
     def set_iv(self, iv):
-        assert (isinstance(iv, IV))
+        assert isinstance(iv, IV)
         self._iv = iv
 
     def set_iv_dict(self, iv_dict):
@@ -122,19 +129,19 @@ class SuperLoop(Loop):
 
     @property
     def entry_edge_src_blk(self):
-        '''
+        """
         Return a list of entry blocks (with adj blk)
-        '''
+        """
         ret_list = [self.entry_edges[0][0]]
         ret_list.extend(self._adj_entry_blk)
         return ret_list
 
     @property
     def entry_edge_src_blk_addr(self):
-        '''
+        """
         Return the addr of the "first" entry block,
         which is at the end of the list
-        '''
+        """
         return self.entry_edge_src_blk[-1].addr
 
     @property
@@ -151,9 +158,9 @@ class SuperLoop(Loop):
 
     @property
     def _break_edge_src_blk(self):
-        '''
+        """
         Return a list of break edge src blk
-        '''
+        """
         if self._ret_break_blk:
             return [self._ret_break_blk]
 
@@ -167,9 +174,9 @@ class SuperLoop(Loop):
 
     @property
     def branch_addr(self):
-        '''
+        """
         Return a list of branch addr
-        '''
+        """
         if self._ret_break_blk:
             addr = get_last_inst_addr_in_blk(self._func, self._ret_break_blk)
             return [addr]
@@ -178,43 +185,42 @@ class SuperLoop(Loop):
             for blk in self._break_edge_src_blk:
                 branch_blk_set.add(blk)
             # assume only one continue edge
-            assert (len(self.continue_edges) == 1)
+            assert len(self.continue_edges) == 1
             branch_blk_set.add(self.continue_edge_src_blk)
 
             return [
-                get_last_inst_addr_in_blk(self._func, blk)
-                for blk in branch_blk_set
+                get_last_inst_addr_in_blk(self._func, blk) for blk in branch_blk_set
             ]
 
     @property
     def branch_continue_dest_addr(self):
-        '''
+        """
         Return the continue addr after branch
-        '''
+        """
         if self._ret_break_blk:
             return self.continue_edge_src_blk_addr
         return self.continue_edge_dest_blk_addr
-    
+
     @property
     def branch_continue_src_addr(self):
-        '''
+        """
         Return the continue addr before branch
-        '''
+        """
         return get_last_inst_addr_in_blk(self._func, self.continue_edge_src_blk)
 
     def match_branch(self, addr_pair):
-        '''
-        When simgr spawns, we decide what type the spawn it is.
-        '''
-        assert (len(addr_pair) == 2)
+        """
+        When simgr spawns two paths, we decide what type the spawn it is.
+        """
+        assert len(addr_pair) == 2
         if self._ret_break_blk:
-            if addr_pair[
-                    0] == self.continue_edge_src_blk_addr and not check_in_func(
-                        self._func, addr_pair[1]):
+            if addr_pair[0] == self.continue_edge_src_blk_addr and not check_in_func(
+                self._func, addr_pair[1]
+            ):
                 return Branch.BREAK_CONT
-            if addr_pair[
-                    1] == self.continue_edge_src_blk_addr and not check_in_func(
-                        self._func, addr_pair[0]):
+            if addr_pair[1] == self.continue_edge_src_blk_addr and not check_in_func(
+                self._func, addr_pair[0]
+            ):
                 return Branch.BREAK_CONT
             return Branch.NON_LOOP
         else:
@@ -227,19 +233,20 @@ class SuperLoop(Loop):
                     return Branch.BREAK
             # fake break edge case
             if self.continue_edge_dest_blk_addr in addr_pair:
-                if any(addr in self._fake_break_edge_dest_blk_addr
-                       for addr in addr_pair):
+                if any(
+                    addr in self._fake_break_edge_dest_blk_addr for addr in addr_pair
+                ):
                     return Branch.BREAK_CONT
             return Branch.NON_LOOP
 
     def check_break_edge_dest(self, addr):
-        '''
-        Check if a given addr is break edge addr or not. 
+        """
+        Check if a given addr is break edge addr or not.
         If the loop is a return-as-break, we check if it is outside of func.
-        Else, we check if the addr 
+        Else, we check if the addr
             1. is _break_edge_dest_blk_addr
             2. is jumping to _break_edge_dest_blk_addr
-        '''
+        """
         if self._ret_break_blk:
             if not check_in_func(self._func, addr):
                 return True
@@ -252,15 +259,14 @@ class SuperLoop(Loop):
             return False
 
     def get_fake_edge_dest_blk_addr(self, addr_pair):
-        '''
+        """
         DEPRECATED
         From addr_pair, we find one _fake_break_edge_blk_addr
-        '''
-        assert (False)
-        assert (len(addr_pair) == 2)
+        """
+        assert False
+        assert len(addr_pair) == 2
         addr = [
-            addr for addr in addr_pair
-            if addr in self._fake_break_edge_dest_blk_addr
+            addr for addr in addr_pair if addr in self._fake_break_edge_dest_blk_addr
         ]
-        assert (len(addr) == 1)
+        assert len(addr) == 1
         return addr[0]

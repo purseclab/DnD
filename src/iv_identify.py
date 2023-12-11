@@ -157,20 +157,20 @@ def _identify_iv(proj,
         print(simgr.active)
         if iv_var is not None:
             print('MIN: ', state.solver.min(iv_var))
-        print()
+        # print()
 
         if state.addr == 0x100241 and iv_var is None:
             iv_var = state.regs.rax
 
         check_before_stepping(simgr)
 
-        print("before stepping:", simgr.active)
+        # print("before stepping:", simgr.active)
 
         simgr.step(num_inst=1)
 
         check_after_stepping(simgr, outer_loop)
 
-        print("after stepping:", simgr.active)
+        # print("after stepping:", simgr.active)
 
         # check reboot flag
         if proj._reboot:
@@ -420,8 +420,7 @@ def identify_iv(proj, func_addr, outer_loop_idx, all_branch=True):
 
     if not _check_iv(outer_loop, iv_dict):
         print("[identify_iv]: not pass check")
-        from IPython import embed
-        embed()
+        raise TimeoutError
 
     _estimate_iv(proj, iv_dict, iv_filtered)
 
