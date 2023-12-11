@@ -8,7 +8,7 @@ from src.ast import extract_ast
 from src.lifter import lift
 from src.lifter import lift_mem_write, lift_condition, lift_simplify
 from src.timeout import timeout
-from src.onnx_builder import export_onnx
+# from src.onnx_builder import export_onnx
 
 
 def lift_func_to_ast(proj, func_addr):
@@ -113,7 +113,7 @@ def decompile():
         pickle.dump(op_info, file)
 
     # export to onnx
-    export_onnx(proj.analysis_funcs, adj_map, op_info)
+    # export_onnx(proj.analysis_funcs, adj_map, op_info)
 
 
 if __name__ == "__main__":
