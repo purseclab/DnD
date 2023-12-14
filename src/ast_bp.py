@@ -175,14 +175,15 @@ def ast_mem_read_bp(state):
     When memory read, we use the annotated address as the expr
     i.e., the return val is the address expression rather than value expression
     """
-    print("[ast_mem_read_bp] @ ", hex(state.addr))
-    print("read_addr: ", state.inspect.mem_read_address)
+    # print("[ast_mem_read_bp] @ ", hex(state.addr))
+    # print("read_addr: ", state.inspect.mem_read_address)
 
     src_addr = state.inspect.mem_read_address
 
-    # if state.addr == 0x60005ead:
+    # if state.addr == 0x600060c5:
     #     from IPython import embed
     #     embed()
+    #     assert False
 
     # return if concrete
     if src_addr.concrete:
@@ -256,8 +257,8 @@ def ast_mem_write_bp(state):
     Collect ast from memory write, only when write_addr is symbolic.
     If cond_flag is on (indicating the mem write is conditioned on some constraint), we put processed constraints into MemRecord.cond
     """
-    print("[ast_mem_write_bp] @ ", hex(state.addr))
-    print("write_addr: ", state.inspect.mem_write_address)
+    # print("[ast_mem_write_bp] @ ", hex(state.addr))
+    # print("write_addr: ", state.inspect.mem_write_address)
     # print("write_expr: ", state.inspect.mem_write_expr)
 
     write_expr = state.inspect.mem_write_expr
@@ -280,7 +281,7 @@ def ast_mem_write_bp(state):
         cond = check_additional_constraints(state)
 
     # what is it?
-    assert state.inspect.mem_write_condition is None
+    # assert state.inspect.mem_write_condition is None
 
     record = MemRecord(
         state.inspect.mem_write_address,

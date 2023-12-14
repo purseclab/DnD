@@ -56,10 +56,11 @@ def _identify_iv(proj,
     '''
     # config
     add_options = set()
-    add_options.add(angr.sim_options.CONSTRAINT_TRACKING_IN_SOLVER)
-    add_options.add(angr.sim_options.TRACK_CONSTRAINTS)
-    add_options.add(angr.sim_options.TRACK_CONSTRAINT_ACTIONS)
-    add_options.add(angr.sim_options.TRACK_ACTION_HISTORY)
+    # This would cause z3 exception in some cases
+    # add_options.add(angr.sim_options.CONSTRAINT_TRACKING_IN_SOLVER)
+    # add_options.add(angr.sim_options.TRACK_CONSTRAINTS)
+    # add_options.add(angr.sim_options.TRACK_CONSTRAINT_ACTIONS)
+    # add_options.add(angr.sim_options.TRACK_ACTION_HISTORY)
     remove_options = set()
     remove_options.add(angr.sim_options.LAZY_SOLVES)
 
@@ -154,7 +155,7 @@ def _identify_iv(proj,
         assert (len(simgr.active) == 1)
         state = simgr.active[0]
 
-        print(simgr.active)
+        # print(simgr.active)
         if iv_var is not None:
             print('MIN: ', state.solver.min(iv_var))
         # print()

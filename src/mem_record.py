@@ -41,5 +41,5 @@ class MemRecord:
             self.completed_loop_entry,
             self.ongoing_loop_entry,
             self.outer_loop,
-            self.op_addr
+            self.op_addr,
         )

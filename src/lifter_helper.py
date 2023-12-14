@@ -334,7 +334,7 @@ def padding_heuristic(mem_record):
 
 def fusion_heuristic(proj, mem_record):
     """
-    We choose the simpler (i.e., shallower) expr in the ITE, except that the simpler has depth 1
+    We choose the simpler (i.e., shallower) expr in the ITE
     """
 
     new_mem_record = copy(mem_record)
@@ -366,6 +366,8 @@ def fusion_heuristic(proj, mem_record):
             )
             assert not check_ITE_in_expr(simpler_expr)
             new_mem_record.expr = simpler_expr
+            new_mem_record.relu_flag = True
+
             return new_mem_record
 
         if isinstance(mem_record.expr, float):
@@ -373,12 +375,11 @@ def fusion_heuristic(proj, mem_record):
             return new_mem_record
 
     elif is_x86(proj.arch):
-        # it is a hacky solution
-        mem_record.expr = None
-        assert False
+        new_mem_record.expr = None
+        return new_mem_record
 
 
-def recursive_is_max_min_pooling(expr):
+def recursive_is_max_min_pooling_relu(expr):
     """
     One of the elements to be compared is a constant.
     """
@@ -386,14 +387,11 @@ def recursive_is_max_min_pooling(expr):
         return None
 
     if expr.args[1].op == "If" and expr.args[2].op == "fpToFP":
-        num = recursive_is_max_min_pooling(expr.args[1])
+        num = recursive_is_max_min_pooling_relu(expr.args[1])
     elif expr.args[2].op == "If" and expr.args[1].op == "fpToFP":
-        num = recursive_is_max_min_pooling(expr.args[2])
-    elif (
-        expr.args[1].op == "fpToFP"
-        and expr.args[2].op == "FPV"
-        or expr.args[1].op == "FPV"
-        and expr.args[2].op == "fpToFP"
+        num = recursive_is_max_min_pooling_relu(expr.args[2])
+    elif (expr.args[1].op == "fpToFP" and expr.args[2].op == "FPV") or (
+        expr.args[1].op == "FPV" and expr.args[2].op == "fpToFP"
     ):
         num = 1
     else:
@@ -403,8 +401,22 @@ def recursive_is_max_min_pooling(expr):
         return num + 1
 
 
-def lift_pooling(mem_write_dict):
-    pooling_type = None
+def lift_special(mem_write_dict):
+    lifted_ast = lift_max_min_pooling_relu(mem_write_dict)
+    if lifted_ast is not None:
+        return lifted_ast
+
+    lifted_ast = lift_avg_pooling(mem_write_dict)
+    if lifted_ast is not None:
+        return lifted_ast
+
+    return None
+
+
+def lift_avg_pooling(mem_write_dict):
+    """
+    Here is the over-simplified version of the `check_mem_record` in lifter.py
+    """
     num_elements = []
     for addr, mem_write_mr in mem_write_dict.items():
         if len(mem_write_mr) >= 2:
@@ -413,33 +425,80 @@ def lift_pooling(mem_write_dict):
         if mem_write_mr[0].expr.op != "fpToIEEEBV":
             return None
 
-        # First match with max/min pooling
-        num = recursive_is_max_min_pooling(mem_write_mr[0].expr.args[0])
+        # match with avg pooling
+        if mem_write_mr[0].expr.args[0].op == "fpMul":
+            scale = mem_write_mr[0].expr.args[0].args[2].args[0]
+            num_elements.append(int(1 / scale))
+        else:
+            return None
 
-        if num is None:
-            # match with avg pooling (basically we )
-            if mem_write_mr[0].expr.args[0].op == "fpMul":
-                # TODO: copy check_mem_record logic here
-                assert False
-            else:
-                return None
+    if not all([num == num_elements[0] for num in num_elements]):
+        assert False
 
-        num_elements.append(num - 1)
-    
+    assert num_elements[0] ** 0.5 == int(num_elements[0] ** 0.5)
+    kernel_size = int(num_elements[0] ** 0.5)
+
+    lifted_ast = LiftedAST(None, None, None, None)
+    lifted_ast.op_type = AST_OP.AVGPOOL
+    lifted_ast.kernel_size = kernel_size
+    return lifted_ast
+
+
+def lift_max_min_pooling_relu(mem_write_dict):
+    """
+    max/min pooling: constant (FPV) used to compare with is a min/max value
+    relu: constant (FPV) used to compare with is 0
+    """
+    # It means we timeout at the ast extraction, only happen in arm max/min pooling since lots of conditions (IT instruction). If the pooling kernel is large, it would be extremely slow.
     if len(mem_write_dict) == 0:
         lifted_ast = LiftedAST(None, None, None, None)
         lifted_ast.op_type = AST_OP.MAXPOOL
+        return lifted_ast
+
+    num_elements = []
+    constants = []
+    for addr, mem_write_mr in mem_write_dict.items():
+        if len(mem_write_mr) >= 2:
+            return None
+
+        if mem_write_mr[0].expr.op != "fpToIEEEBV":
+            return None
+
+        num = recursive_is_max_min_pooling_relu(mem_write_mr[0].expr.args[0])
+
+        if num is None:
+            return None
+
+        num_elements.append(num - 1)
+
+        constant_leaf = [
+            leaf for leaf in mem_write_mr[0].expr.leaf_asts() if leaf.op == "FPV"
+        ]
+        constants.append(constant_leaf[0].args[0])
+    
+    # Relu
+    if constants[0] == 0:
+        lifted_ast = LiftedAST(None, None, None, None)
+        lifted_ast.op_type = AST_OP.RELU
         return lifted_ast
 
     if not all([num == num_elements[0] for num in num_elements]):
         return None
 
     assert num_elements[0] ** 0.5 == int(num_elements[0] ** 0.5)
-
     kernel_size = int(num_elements[0] ** 0.5)
 
     lifted_ast = LiftedAST(None, None, None, None)
     lifted_ast.op_type = AST_OP.MAXPOOL
     lifted_ast.kernel_size = kernel_size
-
     return lifted_ast
+
+
+def is_data_movement(mem_write_dict):
+    for addr in mem_write_dict:
+        for record in mem_write_dict[addr]:
+            if len(record.expr.annotations) == 0:
+                return False
+            if not isinstance(record.expr.annotations[0], MemReadAnnotation):
+                return False
+    return True

@@ -27,6 +27,8 @@ class AST_OP(Enum):
     FC = auto()
     BN = auto()
     RELU = auto()
+    ADD = auto()
+    SOFTMAX = auto()
 
     def __eq__(self, other):
         if isinstance(other, AST_OP):
@@ -84,6 +86,7 @@ class LiftedAST:
         # op, attributes, weights
         self.op_type = None
         self.kernel_size = None
+        self.relu_flag = False
 
         self._unsolved_reg = set()
         self._prepare()
@@ -141,11 +144,37 @@ class LiftedAST:
                 self.addr_expr = self.addr_expr.replace(sym, reg_val)
                 self.ast_expr = self.ast_expr.replace(sym, reg_val)
 
+    def _get_base_reg(self, expr):
+        base_reg = []
+        for leaf in expr.leaf_asts():
+            if leaf.concrete and leaf.args[0] > 1000:
+                base_reg.append(leaf.args[0])
+        assert len(base_reg) == 1
+        return base_reg[0]
+
+    def get_mem_read_base_reg(self):
+        if self.op_type == AST_OP.ADD:
+            return [
+                self._get_base_reg(self.ast_expr._expr_0),
+                self._get_base_reg(self.ast_expr._expr_1),
+            ]
+        elif hasattr(self, "input_expr") and self.input_expr is not None:
+            return [self._get_base_reg(self.input_expr)]
+        else:
+            return None
+
+    def get_mem_write_base_reg(self):
+        if hasattr(self, "addr_expr") and self.addr_expr is not None:
+            return [self._get_base_reg(self.addr_expr)]
+        else:
+            return None
+
     def get_mem_rw_range(self):
         """
         Get the coarse-grained range of memory read/write addr, it is to determine the topology of the neural network
         TODO: we dont consider the constraints (e.g. iv0 + iv1 > 1),
             it affects act range, but not param range
+        FIXME: some iv expr in the activation ast (input_expr) have offset 1
         """
 
         # TODO: we need to pass these info for pooling layer
@@ -161,14 +190,12 @@ class LiftedAST:
         min_addr_addr = replace_and_eval(
             min_addr_iv_val_list, self.addr_expr, self._solver
         )
-
         max_addr_iv_val_list = [
             (iv_tuple[1], iv_tuple[0].ub) for iv_tuple in self.addr_iv_tuple
         ]
         max_addr_addr = replace_and_eval(
             max_addr_iv_val_list, self.addr_expr, self._solver
         )
-
         self.write_range = (min_addr_addr, max_addr_addr)
 
         # expr range
@@ -178,14 +205,12 @@ class LiftedAST:
         min_expr_addr = self.ast_expr.get_mem_read_addr(
             min_expr_iv_val_list, self._solver
         )
-
         max_expr_iv_val_list = [
             (iv_tuple[1], iv_tuple[0].ub) for iv_tuple in self.expr_iv_tuple
         ]
         max_expr_addr = self.ast_expr.get_mem_read_addr(
             max_expr_iv_val_list, self._solver
         )
-
         self.read_range = list(zip(min_expr_addr, max_expr_addr))
 
     def get_mem_rw(self):
@@ -237,8 +262,10 @@ class LiftedAST:
                     self.op_type = AST_OP.CONV
                 else:
                     self.op_type = AST_OP.FC
+        if self.ast_expr.op == "add":
+            self.op_type = AST_OP.ADD
 
-    def recover_attributes(self):
+    def recover_attributes(self, prev_info):
         attributes = {}
         if self.op_type == AST_OP.CONV:
             attributes["input_channel"] = self.input_channel_iv.size()
@@ -246,36 +273,38 @@ class LiftedAST:
             attributes["kernel_height"] = self.kernel_height_iv.size()
             attributes["kernel_width"] = self.kernel_width_iv.size()
 
-            # decide input expr
-            expr_0 = self.ast_expr.expr.expr_0
-            iv_range_0 = self._range_of_expr(expr_0)
-
-            expr_1 = self.ast_expr.expr.expr_1
-            iv_range_1 = self._range_of_expr(expr_1)
-
-            assert iv_range_0 != iv_range_1
-            input_expr = expr_0 if iv_range_0 > iv_range_1 else expr_1
-
             # input shape: [input_channel, k_h, k_w, height, width]
-            input_channel_iv = None
             height_iv = None
             width_iv = None
-            input_iv_var_list = retrieve_iv_var(input_expr)
+            input_iv_var_list = retrieve_iv_var(self.input_expr)
             input_lifted_iv_list = [
                 self._iv_var_to_lifted_iv(iv_var) for iv_var in input_iv_var_list
             ]
-            print(input_lifted_iv_list)
+            if self.input_channel_iv in input_lifted_iv_list:
+                input_lifted_iv_list.remove(self.input_channel_iv)
+            # print(input_lifted_iv_list)
 
             if len(input_lifted_iv_list) == 4 or len(input_lifted_iv_list) == 5:
                 iv_pairs = list(combinations(input_lifted_iv_list, 2))
                 ivs = [pair for pair in iv_pairs if pair[0].size() == pair[1].size()]
                 ivs.sort(key=lambda x: x[0].size())
+                print("ivs", ivs)
                 assert len(ivs) == 2
                 width_iv = ivs[0][0]
                 height_iv = ivs[0][1]
 
                 attributes["input_height"] = ivs[1][0].size()
                 attributes["input_width"] = ivs[1][1].size()
+
+            elif len(input_lifted_iv_list) == 2:
+                # k_h and k_w are 1
+                iv_pairs = list(combinations(input_lifted_iv_list, 2))
+                ivs = [pair for pair in iv_pairs if pair[0].size() == pair[1].size()]
+
+                attributes["input_height"] = ivs[0][0].size()
+                attributes["input_width"] = ivs[0][1].size()
+            else:
+                assert False
 
             # output shape: [output_channel, height, width]
             output_iv_var_list = retrieve_iv_var(self.addr_expr)
@@ -289,22 +318,43 @@ class LiftedAST:
                 attributes["output_height"] = output_ivs[0].size()
                 attributes["output_width"] = output_ivs[1].size()
             else:
-                from IPython import embed
-
-                embed()
-
-            # stride and padding
-            if attributes["output_height"] <= attributes["input_height"] // 2:
-                # TODO: stride here
                 assert False
+            
+            assert len(prev_info) <= 1
+            if len(prev_info) == 1 and "output_height" in prev_info[0]:
+                prev_output_height = prev_info[0]["output_height"]
+                prev_output_width = prev_info[0]["output_width"]
+                assert prev_output_height == prev_output_width
+
+                # striding
+                print("prev_output_height", prev_output_height)
+                print("input_height", attributes["input_height"])
+                if attributes["input_height"] < prev_output_height:
+                    assert prev_output_height % attributes["input_height"] == 0
+                    attributes["striding"] = (
+                        prev_output_height // attributes["input_height"]
+                    )
+                    attributes["input_height"] = prev_output_height
+                    attributes["input_width"] = prev_output_width
+                else:
+                    attributes["striding"] = 1
             else:
                 attributes["striding"] = 1
-                attributes["padding"] = (
-                    attributes["output_height"]
-                    + attributes["kernel_height"]
-                    - attributes["input_height"]
-                    - 1
-                ) // 2
+
+            # padding
+            print(attributes["output_height"] * attributes["striding"])
+            print(attributes["kernel_height"])
+            print(attributes["input_height"])
+            print(attributes["output_height"] * attributes["striding"]
+                + attributes["kernel_height"]
+                - attributes["input_height"]
+                - 1)
+            attributes["padding"] = (
+                attributes["output_height"] * attributes["striding"]
+                + attributes["kernel_height"]
+                - attributes["input_height"]
+                - 1
+            ) // 2
 
         elif self.op_type == AST_OP.FC:
             return {
@@ -321,6 +371,14 @@ class LiftedAST:
                 "kernel_shape": self.kernel_size,
                 "stride": self.kernel_size,
             }
+
+        elif self.op_type == AST_OP.ADD:
+            attributes["output_height"] = prev_info[0]["output_height"]
+            attributes["output_width"] = prev_info[0]["output_width"]
+        
+        elif self.op_type == AST_OP.RELU:
+            attributes["output_height"] = prev_info[0]["output_height"]
+            attributes["output_width"] = prev_info[0]["output_width"]
 
         return attributes
 
@@ -367,6 +425,9 @@ class LiftedAST:
                                 for assignment in iv_assignment_list
                                 if assignment[0] is not None
                             ]
+
+                            # print(self.weight_expr)
+                            # print(iv_assignment_list)
 
                             weight_addr = replace_and_eval(
                                 iv_assignment_list, self.weight_expr, self._solver
@@ -425,16 +486,29 @@ class LiftedAST:
         print("op_type", self.op_type)
 
         if self.op_type == AST_OP.CONV:
-            # decide weights expr: heuristic here is that, for conv, the iv of weights (i.e. kernel window) is smaller than the iv of input
+            # decide weights expr: heuristic here is that, for conv, the iv of weights (i.e. kernel window) is smaller than the iv of input.
             expr_0 = self.ast_expr.expr.expr_0
             iv_range_0 = self._range_of_expr(expr_0)
-
             expr_1 = self.ast_expr.expr.expr_1
             iv_range_1 = self._range_of_expr(expr_1)
-
-            assert iv_range_0 != iv_range_1
-            self.weight_expr = expr_0 if iv_range_0 < iv_range_1 else expr_1
+            if iv_range_0 != iv_range_1:
+                self.weight_expr = expr_0 if iv_range_0 < iv_range_1 else expr_1
+                self.input_expr = expr_0 if iv_range_0 > iv_range_1 else expr_1
+            else:
+                expr_0_iv_var_list = retrieve_iv_var(expr_0)
+                expr_1_iv_var_list = retrieve_iv_var(expr_1)
+                self.weight_expr = (
+                    expr_0
+                    if len(expr_0_iv_var_list) < len(expr_1_iv_var_list)
+                    else expr_1
+                )
+                self.input_expr = (
+                    expr_0
+                    if len(expr_0_iv_var_list) > len(expr_1_iv_var_list)
+                    else expr_1
+                )
             print("weight_expr", self.weight_expr)
+            print("input_expr", self.input_expr)
 
             # weights shape: [output_channel, input_channel, kernel_height, kernel_width]
             input_channel_iv = None
@@ -447,9 +521,34 @@ class LiftedAST:
                 self._iv_var_to_lifted_iv(iv_var) for iv_var in iv_var_list
             ]
             num_ivs = len(lifted_iv_list)
-            if num_ivs < 4:
-                # only possible when input_channel == 1
-                assert num_ivs == 3
+
+            # FIXME: the following code needs refactoring
+            # 1. reasoning which case it falls to
+            # 2. merge with self.recover_attributes
+
+            if num_ivs == 2:
+                # kernel size is 1x1
+                kernel_height_iv = LiftedIV("kernel_height", 0, 1, None, is_fake=True)
+                kernel_width_iv = LiftedIV("kernel_width", 0, 1, None, is_fake=True)
+                self.kernel_height_iv = kernel_height_iv
+                self.kernel_width_iv = kernel_width_iv
+
+                output_iv_var_list = retrieve_iv_var(self.addr_expr)
+                output_lifted_iv_list = [
+                    self._iv_var_to_lifted_iv(iv_var) for iv_var in output_iv_var_list
+                ]
+                input_channel_iv = [
+                    iv for iv in lifted_iv_list if iv not in output_lifted_iv_list
+                ]
+                self.input_channel_iv = input_channel_iv[0]
+
+                output_channel_iv = [
+                    iv for iv in lifted_iv_list if iv != input_channel_iv
+                ]
+                self.output_channel_iv = output_channel_iv[0]
+
+            elif num_ivs == 3:
+                # input_channel == 1
                 input_channel_iv = LiftedIV("input_channel", 0, 1, None, is_fake=True)
 
                 # kernel_height usually equals to kernel_width, and have the expr pattern "kernel_height_iv * kernel_width + kernel_width_iv" (i.e. access a element in a 2d array)
@@ -467,22 +566,48 @@ class LiftedAST:
                     if iv != kernel_width_iv and iv != kernel_height_iv
                 ][0]
 
-                print("output_channel_iv", output_channel_iv)
-                print("input_channel_iv", input_channel_iv)
-                print("kernel_height_iv", kernel_height_iv)
-                print("kernel_width_iv", kernel_width_iv)
-
                 self.output_channel_iv = output_channel_iv
                 self.input_channel_iv = input_channel_iv
                 self.kernel_height_iv = kernel_height_iv
                 self.kernel_width_iv = kernel_width_iv
 
             elif num_ivs == 4:
-                # TODO: need testing
-                assert False
-            else:
+                iv_pairs = list(combinations(lifted_iv_list, 2))
+                kernel_ivs = [
+                    pair for pair in iv_pairs if pair[0].size() == pair[1].size()
+                ]
+                kernel_ivs.sort(key=lambda x: x[0].size())
+                kernel_width_iv = kernel_ivs[0][0]
+                kernel_height_iv = kernel_ivs[0][1]
+                self.kernel_height_iv = kernel_height_iv
+                self.kernel_width_iv = kernel_width_iv
+
+                # in the addr_expr, there is no input channel iv
+                addr_iv_var_list = retrieve_iv_var(self.addr_expr)
+                addr_lifted_iv_list = [
+                    self._iv_var_to_lifted_iv(iv_var) for iv_var in addr_iv_var_list
+                ]
+                assert len(addr_lifted_iv_list) == 3
+                input_channel_iv = [
+                    iv
+                    for iv in lifted_iv_list
+                    if iv not in addr_lifted_iv_list
+                    and iv != kernel_width_iv
+                    and iv != kernel_height_iv
+                ][0]
+                self.input_channel_iv = input_channel_iv
+
+                output_channel_iv = [
+                    iv
+                    for iv in lifted_iv_list
+                    if iv != kernel_width_iv
+                    and iv != kernel_height_iv
+                    and iv != input_channel_iv
+                ][0]
+                self.output_channel_iv = output_channel_iv
+
+            elif num_ivs == 5:
                 # When one outer loop is split into two
-                assert num_ivs == 5
 
                 # height usually equals to width, and have the expr pattern "height_iv * width + width_iv" (i.e. access a element in a 2d array)
                 iv_pairs = list(combinations(lifted_iv_list, 2))
@@ -492,12 +617,8 @@ class LiftedAST:
                 kernel_ivs.sort(key=lambda x: x[0].size())
                 kernel_width_iv = kernel_ivs[0][0]
                 kernel_height_iv = kernel_ivs[0][1]
-
                 self.kernel_height_iv = kernel_height_iv
                 self.kernel_width_iv = kernel_width_iv
-
-                print("kernel_height_iv", kernel_height_iv)
-                print("kernel_width_iv", kernel_width_iv)
 
                 # remaining three are output and input channel
 
@@ -506,6 +627,9 @@ class LiftedAST:
                 addr_lifted_iv_list = [
                     self._iv_var_to_lifted_iv(iv_var) for iv_var in addr_iv_var_list
                 ]
+                from IPython import embed
+
+                embed()
                 assert len(addr_lifted_iv_list) == 4
                 input_channel_iv = [
                     iv
@@ -515,7 +639,6 @@ class LiftedAST:
                     and iv != kernel_height_iv
                 ][0]
                 self.input_channel_iv = input_channel_iv
-                print("input_channel_iv", input_channel_iv)
 
                 # the other two are output_channel_iv, we eliminate the first one and modify the second one
                 output_channel_iv_list = [
@@ -537,7 +660,6 @@ class LiftedAST:
                 ].ub *= to_eliminate_iv.size()
                 del self.ivs_dict[to_eliminate_iv.name]
                 self.output_channel_iv = output_channel_iv_list[1]
-                print("output_channel_iv", output_channel_iv_list[1])
 
                 # reacquire weight expr since ast_expr has been changed
                 expr_0 = self.ast_expr.expr.expr_0
@@ -546,7 +668,6 @@ class LiftedAST:
                 iv_range_1 = self._range_of_expr(expr_1)
                 assert iv_range_0 != iv_range_1
                 self.weight_expr = expr_0 if iv_range_0 < iv_range_1 else expr_1
-                print("weight_expr", self.weight_expr)
 
                 # eliminate one of the iv in together_iv_var_list
                 # eliminated_iv_var = together_iv_var_list[0]
@@ -557,6 +678,14 @@ class LiftedAST:
                 #     self._iv_var_to_lifted_iv(together_iv_var_list[1]).addr
                 # ].ub *= eliminated_iv.size()
                 # del self.ivs_dict[together_iv_var_list[0]]
+
+            else:
+                assert False
+
+            print("input_channel_iv", self.input_channel_iv)
+            print("output_channel_iv", self.output_channel_iv)
+            print("kernel_height_iv", self.kernel_height_iv)
+            print("kernel_width_iv", self.kernel_width_iv)
 
         elif self.op_type == AST_OP.FC:
             # only one constracted dimension, normally the last op of the network

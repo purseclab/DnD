@@ -9,7 +9,8 @@ from .lifter_helper import (
     reduce_with_new_iv,
     reduce_without_iv,
     min_max_cond_idx,
-    lift_pooling,
+    lift_special,
+    is_data_movement,
 )
 from .lifted_ast import LiftedAST, LiftedIV
 from .mem_record import MemRecord
@@ -46,8 +47,8 @@ def lift_ast_with_ongoing_loop(
     Also check if we can reduce expr by creating new iv
     """
     print("[lift_ast_with_ongoing_loop]")
-    print("[lift_ast_with_ongoing_loop] addr_expr: ", addr_expr)
-    print("[lift_ast_with_ongoing_loop] ast_expr: ", ast_expr)
+    # print("[lift_ast_with_ongoing_loop] addr_expr: ", addr_expr)
+    # print("[lift_ast_with_ongoing_loop] ast_expr: ", ast_expr)
 
     if ast_expr.op == "__add__":
         ast_expr_list = flatten_add_expr(ast_expr)
@@ -128,7 +129,7 @@ def lift_ast_with_completed_loop(
     Accumulation here refers to accumulate_completed
     """
     print("[lift_ast_with_completed_loop]")
-    print("addr_expr: ", addr_expr)
+    # print("addr_expr: ", addr_expr)
 
     assert len(completed_iv_list) == 1
     completed_iv_var = completed_iv_list[0][0]
@@ -136,7 +137,7 @@ def lift_ast_with_completed_loop(
 
     if ast_expr.op == "__add__":
         ast_expr_args = flatten_add_expr(ast_expr)
-        print("ast_expr_args: ", ast_expr_args)
+        # print("ast_expr_args: ", ast_expr_args)
 
         # check accumulation and constant
         const = None
@@ -218,7 +219,7 @@ def lift_mem_record(addr, mem_record, solver, all_ivs):
         if loop.entry.addr in mem_record.completed_loop_entry
     ]
     completed_loop_iv_list = [loop._iv for loop in completed_loop]
-    print("completed_loop_iv_list: ", [iv.name for iv in completed_loop_iv_list])
+    # print("completed_loop_iv_list: ", [iv.name for iv in completed_loop_iv_list])
 
     ongoing_loop = [
         loop
@@ -226,13 +227,13 @@ def lift_mem_record(addr, mem_record, solver, all_ivs):
         if loop.entry.addr in mem_record.ongoing_loop_entry
     ]
     ongoing_loop_iv_list = [loop._iv for loop in ongoing_loop]
-    print("ongoing_loop_iv_list: ", [iv.name for iv in ongoing_loop_iv_list])
+    # print("ongoing_loop_iv_list: ", [iv.name for iv in ongoing_loop_iv_list])
 
     addr_expr_iv_var_list = [iv_var for iv_var in retrieve_iv_var(addr_expr)]
-    print("addr_expr_iv_var_list: ", addr_expr_iv_var_list)
+    # print("addr_expr_iv_var_list: ", addr_expr_iv_var_list)
 
     ast_expr_iv_var_list = [iv_var for iv_var in retrieve_iv_var(ast_expr)]
-    print("ast_expr_iv_var_list: ", ast_expr_iv_var_list)
+    # print("ast_expr_iv_var_list: ", ast_expr_iv_var_list)
 
     # addr_expr_iv should be in ongoing_loop_iv list
     if any(
@@ -277,8 +278,9 @@ def lift_mem_record(addr, mem_record, solver, all_ivs):
         else:
             # If accumulate_ongoing is already flagged, it means that the rerolled expr is executed several times in the completed loop. In this case, we can just modify the reroll(created) IV's loop count. We also need to eliminate the complete IV gracefully.
 
+            # scale is the time the the completed loop is executed
             scale = (
-                completed_iv_list[0][1].increment
+                completed_iv_list[0][1].loop_count
                 if completed_iv_list[0][1].increment != 0
                 else 2
             )
@@ -295,13 +297,12 @@ def lift_mem_record(addr, mem_record, solver, all_ivs):
             assert len(created_iv_list) == 1
 
             print("Modifying created IV's loop count and eliminate IV")
-            # double the loop_count
             created_iv_list[0].loop_count *= scale
             # eliminate the complate IV by replacing it with zero
             ast_expr = ast_expr.replace(completed_iv_list[0][0], solver.BVV(0, 32))
 
     # debugging
-    print("[lift_mem_record] all_ivs at the end: ", all_ivs)
+    # print("[lift_mem_record] all_ivs at the end: ", all_ivs)
 
     return MemRecord(
         addr=addr_expr,
@@ -339,8 +340,12 @@ def reroll_reduce_addr_and_expr(addr_expr_list, ast_expr_list, all_ivs, solver):
     """
     A helper function for reroll, currently only support ast_expr with two args
     """
-    arg_0_list = [ast.expr.expr_0 for ast in ast_expr_list]
-    arg_1_list = [ast.expr.expr_1 for ast in ast_expr_list]
+    if isinstance(ast_expr_list[0], Sum):
+        arg_0_list = [ast.expr.expr_0 for ast in ast_expr_list]
+        arg_1_list = [ast.expr.expr_1 for ast in ast_expr_list]
+    elif ast_expr_list[0].op == "__add__":
+        arg_0_list = [ast.args[0] for ast in ast_expr_list]
+        arg_1_list = [ast.args[1] for ast in ast_expr_list]
 
     # find reroll_iv and reroll_iv_var based on increment
     # found->True if addr_expr are incremental on an IV (i, i+4, i+8...)
@@ -459,7 +464,7 @@ def merge_loop(mem_write_lift_list, to_merge_iv_list):
     """
 
     print("[merge_loop] before merging")
-    print(mem_write_lift_list)
+    # print(mem_write_lift_list)
 
     for to_merge_iv in to_merge_iv_list:
         assert len(to_merge_iv) >= 2
@@ -590,9 +595,9 @@ def lift_mem_write(proj, mem_write_dict, solver):
     )
 
     # Debugging
-    print("Before loop merging")
-    print(mem_write_lift_list)
-    print(all_ivs)
+    # print("Before loop merging")
+    # print(mem_write_lift_list)
+    # print(all_ivs)
 
     # Merge IV
     # If
@@ -667,7 +672,7 @@ def lift_mem_write(proj, mem_write_dict, solver):
     # Debugging
     print("[merge_loop] after merging")
     print(mem_write_lift_list)
-    print(all_ivs)
+    # print(all_ivs)
 
     # Reroll the loop and construct lifted AST
     if len(mem_write_lift_list) > 1:
@@ -706,6 +711,7 @@ def lift_condition(proj, mem_write_dict, solver):
     """
 
     ret_mem_write_dict = {}
+    relu_flag = False
 
     # handle conditions with heuristic
     remove_entry = set()
@@ -718,14 +724,16 @@ def lift_condition(proj, mem_write_dict, solver):
         ):
             # print("Multiple write expr at one addr or ITE @ ", hex(addr))
             mem_record = conditional_heuristic(proj, mem_write_dict[addr])
+            if mem_record.relu_flag:
+                relu_flag = True
         else:
             mem_record = mem_write_dict[addr][0]
 
-        # we just wanna remove some mem_record,
-        # due to hacky solution in fusion_heuristic
+        # we wanna remove some mem_record
+        # TODO: they should be removed in `fusion_heuristic`
         if mem_record.expr is None or mem_record.expr.concrete:
             remove_entry.add(addr)
-            print("Remove entry @ ", hex(addr), mem_record.expr)
+            # print("Remove entry @ ", hex(addr), mem_record.expr)
         else:
             ret_mem_write_dict[addr] = mem_record
 
@@ -733,9 +741,9 @@ def lift_condition(proj, mem_write_dict, solver):
         if remove_addr in ret_mem_write_dict:
             del ret_mem_write_dict[remove_addr]
 
-    print("Finish handling condition")
+    # print("Finish handling condition")
 
-    return ret_mem_write_dict
+    return ret_mem_write_dict, relu_flag
 
 
 def lift(proj, mem_write_dict, solver):
@@ -743,18 +751,25 @@ def lift(proj, mem_write_dict, solver):
     Lift the memory write addr/expr to AST
     """
 
-    # Special handling of pooling
-    lifted_ast = lift_pooling(mem_write_dict)
+    # Don't handle data movement op (e.g., transpose)
+    if is_data_movement(mem_write_dict):
+        return None
+
+    # Special handling of some ops (maxpooling, avgpooling, relu). Solver is hard to handle them since they have lots of ITEs and floating point operations, resulting in *very* lenthy symbolic constraints.
+    lifted_ast = lift_special(mem_write_dict)
     if lifted_ast is not None:
         return lifted_ast
 
     # Handling condition (padding and fusion)
-    mem_write_dict = lift_condition(proj, mem_write_dict, solver)
+    mem_write_dict, relu_flag = lift_condition(proj, mem_write_dict, solver)
 
     # Simplify the expr
     new_mem_write_dict = lift_simplify(proj, mem_write_dict, solver)
 
     # lift to AST
     lifted_ast = lift_mem_write(proj, new_mem_write_dict, solver)
+
+    if relu_flag:
+        lifted_ast.relu_flag = True
 
     return lifted_ast
