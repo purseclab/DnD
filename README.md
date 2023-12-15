@@ -1,11 +1,11 @@
 # DnD: A Cross-Architecture Deep Neural Network Decompiler
 
-DND is the first compiler- and ISA-agnostic deep neural network (DNN) decompiler capable of extracting DNN models from compiled binaries. 
+DND is a deep neural network (DNN) decompiler capable of reverse engineering DNN models from compiled binaries.
 
 ### Environment  
 1. Create a Python virtual environment
 2. `pip install -r ./angr_env/requirements.txt `
-3. Move `./angr_env/base.py` to overwrite the counterpart in the virtual environment `claripy` (usually in `$USERNAME/.virtualenvs/$VIRTUALENVNAME/lib/python3.8/site-packages/claripy/ast/base.py`) 
+3. Move `./angr_env/base.py` to overwrite the counterpart in the virtual environment `claripy` (usually in `$USERNAME/.virtualenvs/$VIRTUALENVNAME/lib/python$VERSION/site-packages/claripy/ast/base.py`) 
 
 ### Usage
 Run `python decompiler.py <model_binary> <model_onnx>` to decompile a binary sample (`<model_binary>`) and export it into an ONNX file (`<model_onnx>`). Please check `decompiler.py` for more details.
