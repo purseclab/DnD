@@ -126,7 +126,7 @@ def recover_topology(proj, lifted_ast_map):
     return adj_map
 
 
-def decompile(path):
+def decompile(path, outpath):
     # mnist sample
     # bin_path = "./binary_samples/mnist/evkbimxrt1050_glow_lenet_mnist_release.axf"
     proj = load(path)
@@ -168,8 +168,8 @@ def decompile(path):
     #     pickle.dump(op_info, file)
 
     # export to onnx
-    export_onnx(lifted_ast_map, adj_map, op_info)
+    export_onnx(lifted_ast_map, adj_map, op_info, outpath)
 
 
 if __name__ == "__main__":
-    decompile(sys.argv[1])
+    decompile(sys.argv[1], sys.argv[2])
