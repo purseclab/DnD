@@ -1,6 +1,6 @@
 from collections import deque
 from archinfo import arch_arm
-from .anno import BitsConvertAnnotation, IVAnnotation, isMemRead
+from .anno import BitsConvertAnnotation, IVAnnotation, isMemRead, MemReadAnnotation
 
 import angr
 import claripy
@@ -11,45 +11,53 @@ import struct
 import operator
 import functools
 
+# FIXME
+LIBC_FUNC_NAME = ["expf", "memset", "finitef", "exit", "atexit", "exp", "fabs", "ldexp"]
+
 
 def get_succ(proj, f_addr):
-    '''
+    """
     Get the addr of callees of function
-    '''
+    """
     return list(proj.cfg.kb.functions.callgraph.successors(f_addr))
 
 
 def get_pred(proj, f_addr):
-    '''
+    """
     Get the addr of callers of function
-    '''
+    """
     return list(proj.cfg.kb.functions.callgraph.predecessors(f_addr))
 
 
 def has_math_func(proj, f_addr):
-    '''
+    """
     Check if the function has libc math function
-    '''
+    """
     succ = get_succ(proj, f_addr)
     for s in succ:
-        if s in proj.cfg.kb.functions and proj.cfg.kb.functions[s].name in MATH_FUNC_NAME:
+        if (
+            s in proj.cfg.kb.functions
+            and proj.cfg.kb.functions[s].name in LIBC_FUNC_NAME
+        ):
             return True
     return False
 
 
 def get_loop_depth(loop):
-    '''
+    """
     Get the maximum depth of the nested loop
-    '''
+    """
     if not loop:
         return 0
     return max([get_loop_depth(l.subloops) for l in loop]) + 1
 
 
 def is_arm_arch(arch):
-    if isinstance(arch, archinfo.arch_arm.ArchARMEL) or isinstance(
-            arch, archinfo.arch_arm.ArchARM) or isinstance(
-                arch, archinfo.arch_arm.ArchARMCortexM):
+    if (
+        isinstance(arch, archinfo.arch_arm.ArchARMEL)
+        or isinstance(arch, archinfo.arch_arm.ArchARM)
+        or isinstance(arch, archinfo.arch_arm.ArchARMCortexM)
+    ):
         return True
     return False
 
@@ -67,18 +75,18 @@ def is_aarch64(arch):
 
 
 def check_arch(arch):
-    '''
+    """
     Our support arch
-    '''
+    """
     if is_arm_arch(arch):
         return True
     return False
 
 
 def check_regular_register(arch, reg_name):
-    ''' 
+    """
     check if reg is one of regular reg
-    '''
+    """
     if check_arch(arch):
         # rxx
         if re.match(r"^r\d{1,2}$", reg_name):
@@ -92,32 +100,33 @@ def check_regular_register(arch, reg_name):
 
     elif is_x86(arch):
         # 32-bits general-purpose registers
-        gpr_32 = ['eax', 'ecx', 'edx', 'ebx', 'esp', 'ebp', 'esi', 'edi']
-        gpr_64 = ['rax', 'rcx', 'rdx', 'rbx', 'rsp', 'rbp', 'rsi', 'rdi']
-        additional_reg = ['r8', 'r9', 'r10', 'r11', 'r12', 'r13', 'r14', 'r15']
+        gpr_32 = ["eax", "ecx", "edx", "ebx", "esp", "ebp", "esi", "edi"]
+        gpr_64 = ["rax", "rcx", "rdx", "rbx", "rsp", "rbp", "rsi", "rdi"]
+        additional_reg = ["r8", "r9", "r10", "r11", "r12", "r13", "r14", "r15"]
         if reg_name in gpr_32 + gpr_64 + additional_reg:
             return True
 
         return False
 
     elif is_aarch64(arch):
-        assert (False)
+        assert False
         pass
 
     else:
         print("[check_regular_register] arch not supported")
-        assert (False)
+        assert False
 
 
 def flatten_add_expr(expr):
-    '''
-    Given an addition expr, 
+    """
+    Given an addition expr,
     return all the arguments in one lists
-    '''
+    """
+    # if an expr is mem read location, we would not flatten it
     if isMemRead(expr):
         return [expr]
 
-    if expr.op == '__add__':
+    if expr.op == "__add__":
         ret_list = []
         for sub_expr in expr.args:
             ret_list = ret_list + flatten_add_expr(sub_expr)
@@ -127,33 +136,33 @@ def flatten_add_expr(expr):
 
 
 def get_func_addr_from_addr(proj, addr):
-    '''
+    """
     return the func addr where the addr is in
-    '''
+    """
     for f_addr, func in proj.funcs.items():
         if check_in_func(func, addr):
             return f_addr
 
 
 def check_in_block(block, addr):
-    '''
+    """
     check if addr is in the block
-    '''
+    """
     if addr >= block.addr and addr < block.addr + block.size:
         return True
     return False
 
 
 def get_func_boundary(func):
-    '''
+    """
     Return the min and max addr of the given func.
-    
-    Note that addr + size is not the max, because size = sum of block.size, 
+
+    Note that addr + size is not the max, because size = sum of block.size,
     and it is possible that random bytes in the func.
     e.g. glow_mnist_8_ARM_M4 0x101af
-    
+
     Also note the max_addr is not the addr of last inst, but the next one.
-    '''
+    """
     min_addr = func.addr
 
     last_blk_addr = max(func.block_addrs_set)
@@ -164,9 +173,9 @@ def get_func_boundary(func):
 
 
 def check_in_func(func, addr):
-    '''
+    """
     check if addr is in func
-    '''
+    """
 
     min_addr, max_addr = get_func_boundary(func)
 
@@ -176,35 +185,35 @@ def check_in_func(func, addr):
 
 
 def get_last_inst_addr_in_blk(func, blk):
-    '''
+    """
     get blk's last inst addr
-    '''
+    """
     proj = func.project
     block = None
     if isinstance(blk, angr.codenode.BlockNode):
-        assert (blk.addr in proj.block_map)
+        assert blk.addr in proj.block_map
         block = proj.block_map[blk.addr]
     elif isinstance(blk, angr.block.Block):
         block = blk
     else:
-        assert (False)
+        assert False
 
     return block.instruction_addrs[-1]
 
 
 def get_last_inst_addr_in_func(func):
-    '''
+    """
     Get func's last inst addr
-    '''
+    """
     last_blk_addr = max(func.block_addrs_set)
     last_blk = func._local_blocks[last_blk_addr]
     return get_last_inst_addr_in_blk(func, last_blk)
 
 
 def solve_addr(state, addr):
-    '''
+    """
     https://github.com/angr/angr/blob/master/angr/concretization_strategies/__init__.py: _eval
-    '''
+    """
     addrs = state.solver.eval_upto(addr, 2)
     if len(addrs) == 1:
         return True, hex(addrs[0])
@@ -212,24 +221,24 @@ def solve_addr(state, addr):
 
 
 def check_symexpr_variables(symexpr, flag):
-    '''
+    """
     For region, return *one* matched string.
     For iv, return all matched iv
-    '''
-    if flag == 'region':
+    """
+    if flag == "region":
         region = []
         for v in symexpr.variables:
             if "act" in v or "weight" in v or "io" in v:
                 region.append(v)
 
         # should only belong to one or zero region
-        assert (len(region) <= 1)
+        assert len(region) <= 1
 
         if len(region) == 1:
             return (True, region[0])
         return (False, None)
 
-    elif flag == 'loop':
+    elif flag == "loop":
         iv = []
         for v in symexpr.variables:
             if "loop" in v:
@@ -243,9 +252,9 @@ def check_symexpr_variables(symexpr, flag):
 
 
 def get_idx_from_loop_list(loop_list, l):
-    '''
-    get the idx of loop from loop_list, if loop is in the loop_list. 
-    '''
+    """
+    get the idx of loop from loop_list, if loop is in the loop_list.
+    """
     for idx in range(len(loop_list)):
         if loop_list[idx] == l:
             return idx
@@ -253,20 +262,20 @@ def get_idx_from_loop_list(loop_list, l):
 
 
 def reg_sym_to_reg_name(arch, sym):
-    assert (is_reg(sym))
-    offset_str = '_'.join(sym.__str__().split(' ')[1].split('_')[1:2])
+    assert is_reg(sym)
+    offset_str = "_".join(sym.__str__().split(" ")[1].split("_")[1:2])
     offset = int(offset_str, 16)
     return get_reg_name(arch, offset, 8)
 
 
 def get_reg_name(arch, offset, size):
-    '''
+    """
     Given the offset and size of reg read/write, return the name.
-    
+
     ARM: d0 -> (s1, s0); d1 -> (s3, s2) ...
     Size could be zero when it is called in before breakpoint,
     thus we can not decide it is 's' or 'd'. By default we return 's'
-    '''
+    """
     if is_arm_arch(arch):
         if offset >= 0x80 and offset <= 0x178:
             # d1 - d31
@@ -274,15 +283,14 @@ def get_reg_name(arch, offset, size):
                 if size == 8:
                     return arch.register_names[offset]
                 else:
-                    return 's' + str(int(arch.register_names[offset][1:]) * 2)
+                    return "s" + str(int(arch.register_names[offset][1:]) * 2)
             # if it is odd 's'
-            elif offset in range(0x84, 0x17c, 4):
-                assert (offset != 8)
-                return 's' + str(
-                    int(arch.register_names[offset - 4][1:]) * 2 + 1)
+            elif offset in range(0x84, 0x17C, 4):
+                assert offset != 8
+                return "s" + str(int(arch.register_names[offset - 4][1:]) * 2 + 1)
             else:
                 print("[get_reg_name]: not a valid offset")
-                assert (False)
+                assert False
         else:
             return arch.register_names[offset]
 
@@ -290,34 +298,34 @@ def get_reg_name(arch, offset, size):
         if offset >= 224 and offset <= 736:
             return "SSE2"
         return arch.register_names[offset]
-    
+
     elif is_aarch64(arch):
         return arch.register_names[offset]
-    
+
     else:
         print("[get_reg_name] arch not supported")
-        assert (False)
+        assert False
 
 
 def retrieve_iv_var(expr):
-    '''
+    """
     retrieve iv variable in the expr (for eval)
-    '''
+    """
 
     if expr is None:
         return []
 
     iv_var_list = []
     for l_expr in expr.leaf_asts():
-        if 'IV' in l_expr.__str__():
+        if "IV" in l_expr.__str__():
             iv_var_list.append(l_expr)
     return iv_var_list
 
 
 def retrieve_specific_iv_var(expr, iv_name):
-    '''
+    """
     retrieve the iv_var with the given name
-    '''
+    """
     for l_expr in expr.leaf_asts():
         if iv_name in l_expr.__str__():
             return l_expr
@@ -325,9 +333,9 @@ def retrieve_specific_iv_var(expr, iv_name):
 
 
 def check_iv_in_expr(expr, iv_name):
-    '''
+    """
     Check if iv of iv_name in expr or not
-    '''
+    """
     for l_expr in expr.leaf_asts():
         if iv_name in l_expr.__str__():
             return True
@@ -335,21 +343,24 @@ def check_iv_in_expr(expr, iv_name):
 
 
 def iv_to_iv_name(iv):
-    return '_'.join(iv.__str__().split(' ')[1].split('_')[:2])
+    """
+    iv_var: claripy.ast.BVS to its name
+    """
+    return "_".join(iv.__str__().split(" ")[1].split("_")[:2])
 
 
 def iv_to_iv_version(iv):
-    return '_'.join(iv.__str__().split(' ')[1].split('_')[2:3])
+    return "_".join(iv.__str__().split(" ")[1].split("_")[2:3])
 
 
 def iv_to_iv_addr(iv):
-    return '_'.join(iv.__str__().split(' ')[1].split('_')[1:2])
+    return "_".join(iv.__str__().split(" ")[1].split("_")[1:2])
 
 
 def get_iv_anno(expr):
-    '''
-    Get IV annos from expr. 
-    '''
+    """
+    Get IV annos from expr.
+    """
     iv_anno_list = []
     for anno in expr.annotations:
         if isinstance(anno, IVAnnotation):
@@ -358,9 +369,9 @@ def get_iv_anno(expr):
 
 
 def check_iv_expr(expr):
-    '''
+    """
     Return True if iv in expr
-    '''
+    """
     for v in expr.variables:
         if "IV" in v:
             return True
@@ -368,10 +379,10 @@ def check_iv_expr(expr):
 
 
 def check_iv(expr):
-    '''
+    """
     Return True if expr is iv
-    '''
-    if expr.op != 'BVS':
+    """
+    if expr.op != "BVS":
         return False
 
     if "IV" not in list(expr.variables)[0]:
@@ -395,16 +406,16 @@ def blk_adjacent_pred(blk):
         pred = blk.predecessors()[0]
         if len(pred.successors()) != 1:
             return False
-        assert (pred.successors()[0] == blk)
+        assert pred.successors()[0] == blk
         return True
     except:
         return False
 
 
 def get_iv_expr(expr):
-    '''
-    Given an expr, return all sub-expr annotated with IV    
-    '''
+    """
+    Given an expr, return all sub-expr annotated with IV
+    """
     ret_set = set()
     for e in expr.children_asts():
         if any([isinstance(anno, IVAnnotation) for anno in e.annotations]):
@@ -413,9 +424,9 @@ def get_iv_expr(expr):
 
 
 def get_outer_iv_expr(expr):
-    '''
-    Given an expr, return all outer expr annotated with IV    
-    '''
+    """
+    Given an expr, return all outer expr annotated with IV
+    """
     ret_set = set()
 
     ast_queue = deque([iter(expr.args)])
@@ -427,8 +438,7 @@ def get_outer_iv_expr(expr):
             continue
 
         if isinstance(ast, claripy.ast.Base):
-            if any(
-                [isinstance(anno, IVAnnotation) for anno in ast.annotations]):
+            if any([isinstance(anno, IVAnnotation) for anno in ast.annotations]):
                 ret_set.add(ast)
             else:
                 ast_queue.append(iter(ast.args))
@@ -437,9 +447,9 @@ def get_outer_iv_expr(expr):
 
 
 def get_num_leaf_asts(expr):
-    '''
+    """
     Given an expr, return the number of its leaf asts
-    '''
+    """
     counter = 0
     for l in expr.leaf_asts():
         counter += 1
@@ -447,9 +457,9 @@ def get_num_leaf_asts(expr):
 
 
 def get_num_children_asts(expr):
-    '''
+    """
     Given an expr, return the number of its leaf asts
-    '''
+    """
     counter = 0
     for l in expr.children_asts():
         counter += 1
@@ -457,27 +467,27 @@ def get_num_children_asts(expr):
 
 
 def retrieve_from_addition_expr(expr):
-    '''
+    """
     Given an addition expr (symbolic + concrete), return the concrete and the symbolic
-    '''
-    assert (expr.op == '__add__' or expr.op == '__sub__')
-    assert (len(expr.args) >= 2)
+    """
+    assert expr.op == "__add__" or expr.op == "__sub__"
+    assert len(expr.args) >= 2
 
     e0 = expr.args[0]
     e1 = expr.args[1]
 
     if e0.concrete and e1.symbolic and len(expr.args) == 2:
-        if expr.op == '__add__':
+        if expr.op == "__add__":
             return e0, e1
-        elif expr.op == '__sub__':
+        elif expr.op == "__sub__":
             return -e0, e1
     elif e0.symbolic and e1.concrete and len(expr.args) == 2:
-        if expr.op == '__add__':
+        if expr.op == "__add__":
             return e1, e0
-        if expr.op == '__sub__':
+        if expr.op == "__sub__":
             return -e1, e0
     else:
-        assert (expr.op == '__add__')
+        assert expr.op == "__add__"
         expr_args = flatten_add_expr(expr)
         con = None
         sym = None
@@ -511,46 +521,44 @@ def reset_mem_lift_dict(proj):
 
 
 def expr_list_diff(ls, solver):
-    '''
+    """
     Return the difference of a list
     Default is using solver, if fails, use pattern matching
-    '''
+    """
     try:
-        ls_diff = [
-            solver.eval(ls[idx] - ls[idx - 1]) for idx in range(1, len(ls))
-        ]
+        ls_diff = [solver.eval(ls[idx] - ls[idx - 1]) for idx in range(1, len(ls))]
     except:
         pass
     return ls_diff
 
 
 def is_reg(expr):
-    assert (expr.op in claripy.operations.leaf_operations)
-    return 'reg' in expr.__str__()
+    assert expr.op in claripy.operations.leaf_operations
+    return "reg" in expr.__str__()
 
 
 def is_IV(expr):
-    assert (expr.op in claripy.operations.leaf_operations)
-    if expr.op == 'BVS':
-        return 'IV' in expr.__str__()
+    assert expr.op in claripy.operations.leaf_operations
+    if expr.op == "BVS":
+        return "IV" in expr.__str__()
     return False
 
 
 def iv_structurally_match(expr_1, expr_2):
-    '''
+    """
     Adapted from "base.py: structurally_match"
     Difference:
         1. dont compare registers
         2. IV version could be different (X)
-    (e.g. <BV32 reg_8_71_32{UNINITIALIZED} + IV_0x10017_1_32 * 0x4> matches to 
+    (e.g. <BV32 reg_8_71_32{UNINITIALIZED} + IV_0x10017_1_32 * 0x4> matches to
     <BV32 reg_14_34_32{UNINITIALIZED} + IV_0x10017_141_32>)
-    '''
+    """
 
     if expr_1.op != expr_2.op:
         return False
 
     if len(expr_1.args) != len(expr_2.args):
-        return
+        return False
 
     for arg_a, arg_b in zip(expr_1.args, expr_2.args):
         # I dont know what's doing here
@@ -566,14 +574,17 @@ def iv_structurally_match(expr_1, expr_2):
             # we dont compare reg
             if is_reg(arg_a) and is_reg(arg_b):
                 continue
-            '''
+            """
             # for IV sym, we only consider IV addr
             if is_IV(arg_a) and is_IV(arg_b):
                 if iv_to_iv_addr(arg_a) == iv_to_iv_addr(arg_b):
                     continue
                 else:
                     return False
-            '''
+            """
+
+            if arg_a.op == "BVV" and arg_b.op == "BVV":
+                continue
 
             if arg_a is not arg_b:
                 return False
@@ -586,12 +597,12 @@ def iv_structurally_match(expr_1, expr_2):
 
 
 def find_reroll_loop_candidate(outer_loop):
-    '''
+    """
     find the loops that
-        1. at the same hierarchy 
+        1. at the same hierarchy
         2. have the same loop count
         3. len(loops) == increment
-    '''
+    """
 
     loop = outer_loop[0]
 
@@ -609,30 +620,31 @@ def find_reroll_loop_candidate(outer_loop):
 
         if len(loop.subloops) > 1:
             from IPython import embed
+
             embed()
 
 
 def hex_to_float(hex_str):
-    assert (hex_str[:2] == '0x')
-    return struct.unpack('<f', bytes.fromhex(hex_str[2:].zfill(8)))[0]
+    assert hex_str[:2] == "0x"
+    return struct.unpack("<f", bytes.fromhex(hex_str[2:].zfill(8)))[0]
 
 
 def check_ITE_in_expr(expr):
-    '''
+    """
     Return True if ITE in expr, otherwise return False
-    '''
+    """
     for e in expr.children_asts():
-        if e.op == 'If':
+        if e.op == "If":
             return True
 
     return False
 
 
 def dissect_ite():
-    '''
-    Given an ITE expr, return all leaf asts (without ITE) with 
+    """
+    Given an ITE expr, return all leaf asts (without ITE) with
     their corresponding conditions
-    '''
+    """
     pass
 
 
@@ -645,21 +657,21 @@ def find_iv_from_all_ivs(iv_var, all_ivs):
 
 
 def find_jump_addr(proj, dis):
-    '''
-    Given a disassembly of a (jump) instruction, 
+    """
+    Given a disassembly of a (jump) instruction,
     return the jump addr
-    '''
+    """
 
-    assert (check_arch(proj.arch))
-    assert (dis.insn.mnemonic == 'bl')
+    assert check_arch(proj.arch)
+    assert dis.insn.mnemonic == "bl"
 
     return int(dis.insn.op_str[1:], 16)
 
 
 def replace_and_eval(iv_val_list, expr, solver):
-    '''
+    """
     iv_val_list: [(sym, val)]
-    '''
+    """
 
     eval_expr = expr
     for iv_val in iv_val_list:
@@ -685,36 +697,85 @@ def simplify_and_sort(expr_list, solver):
 
 
 def replace_64_to_32(state, symvar):
-    '''
-    It is more complicated than I thought, since we can not use replace to change size. 
-    So we adopt the alternative that truncate symvar into 
-    '''
+    """
+    It is more complicated than I thought, since we can not use replace to change size.
+    So we adopt the alternative that truncate symvar into
+    """
 
-    assert (symvar.size() == 64)
+    assert symvar.size() == 64
     new_symvar = claripy.ops.Extract(31, 0, symvar)
-    assert (new_symvar.size() == 32)
+    assert new_symvar.size() == 32
     return new_symvar.annotate(BitsConvertAnnotation(state.addr))
 
     # create replace list
     replace_list = []
     for leaf in symvar.leaf_asts():
-        assert (leaf.size() == 64)
+        assert leaf.size() == 64
         if leaf.symbolic:
-            assert ("reg" in leaf.__str__())
-            name = '_'.join(leaf.__str__().split(' ')[1].split('_')[:2])
+            assert "reg" in leaf.__str__()
+            name = "_".join(leaf.__str__().split(" ")[1].split("_")[:2])
             new_leaf = claripy.BVS(name, 32)
         else:
-            assert (leaf.op == 'BVV')
+            assert leaf.op == "BVV"
             concrete_val = state.solver.eval(leaf)
             new_leaf = claripy.BVV(concrete_val, 32)
         replace_list.append((leaf, new_leaf))
 
     from IPython import embed
+
     embed()
-    
-    # replace 
+
+    # replace
     new_symvar = symvar
     for pair in replace_list:
         new_symvar = new_symvar.replace(pair[0], pair[1])
 
     return new_symvar
+
+
+def bytes_to_float(hex_bytes, endian=True):
+    weight_hex_str = hex(hex_bytes).rstrip("L")[2:].zfill(8)
+    if endian:
+        return struct.unpack(
+            "!f",
+            bytes.fromhex(weight_hex_str),
+        )[0]
+    else:
+        return struct.unpack(
+            "f",
+            bytes.fromhex(weight_hex_str),
+        )[0]
+
+
+def compare_coefficient(expr, iv_var_0, iv_var_1, solver):
+    """
+    compare the coefficient of iv_var_0 and iv_var_1 in expr
+    for example, in
+
+    <BV32 0x80002dc0 + ((0x0 + IV_0x60005299_3504_32 * 0x3 + IV_0x600052bd_3505_32) * 0x3 + IV_0x600052f5_3506_32 + ((0x0 + IV_0x60005299_3504_32 * 0x3 + IV_0x600052bd_3505_32) * 0x3 + IV_0x600052f5_3506_32) * 0x2) * 0x4 + 0x4 * IVRC_777500_3516_32>
+
+    IV_0x600052f5 has the greater coefficient than IVRC_777500_3516_32
+
+    The intuition is that row index has the greater coefficient than col index
+    """
+    iv_var_list = retrieve_iv_var(expr)
+    trivial_iv_var_list = [
+        iv_var
+        for iv_var in iv_var_list
+        if iv_var_0.__str__() != iv_var.__str__()
+        and iv_var_1.__str__() != iv_var.__str__()
+    ]
+
+    iv_var_0_replace_list = [(iv_var, 0) for iv_var in trivial_iv_var_list] + [
+        (iv_var_0, 1),
+        (iv_var_1, 0),
+    ]
+    iv_var_0_val = replace_and_eval(iv_var_0_replace_list, expr, solver)
+
+    iv_var_1_replace_list = [(iv_var, 0) for iv_var in trivial_iv_var_list] + [
+        (iv_var_0, 0),
+        (iv_var_1, 1),
+    ]
+    iv_var_1_val = replace_and_eval(iv_var_1_replace_list, expr, solver)
+
+    return True if iv_var_0_val > iv_var_1_val else False

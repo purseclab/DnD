@@ -238,7 +238,7 @@ def _exit_bp_handle_iv_sym_init(state, loop):
                     loop=loop,
                     init_sym=True,
                     is_aux=True)
-        print("[_exit_bp_handle_iv_sym_init] two-sym", hex(start_iv_addr))
+        # print("[_exit_bp_handle_iv_sym_init] two-sym", hex(start_iv_addr))
         state.globals["aux_iv_dict"][start_iv_addr] = end_iv
 
         # decide the increment and the loop_count
@@ -326,7 +326,7 @@ def iv_exit_bp(state):
 
     # handle with the found_iv first
     if found_iv is not None:
-        print("[found iv]: ", found_iv)
+        # print("[found iv]: ", found_iv)
         # iv_addr_list could contain elements, since IV can be init in previous blk
         # assert (len(iv_addr_list) == 0)
         # print(exit_guard_variables)
@@ -357,8 +357,8 @@ def iv_exit_bp(state):
                     pass
             iv.exit_condition = state.inspect.exit_guard
             check_inc_list.append(iv_addr)
-            print("[append iv exit_guard @ %s] append" % hex(state.addr),
-                  state.inspect.exit_guard, "to ", iv.name)
+            # print("[append iv exit_guard @ %s] append" % hex(state.addr),
+            #       state.inspect.exit_guard, "to ", iv.name)
 
     # if no iv (in iv_addr) in the exit_guard, but other iv in,
     # we know it could be "iv init as sym" case

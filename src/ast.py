@@ -1,46 +1,74 @@
-from .utils import check_in_func, find_reroll_loop_candidate, get_func_addr_from_addr, reset_mem_dict
+from .utils import (
+    check_in_func,
+    find_reroll_loop_candidate,
+    get_func_addr_from_addr,
+    reset_mem_dict,
+    is_arm_arch,
+)
 
-from .ast_bp import ast_address_concretization_bp, ast_constraints_bp, ast_fork_bp, ast_mem_read_bp, ast_reg_write_bp_iv_simplify
+from .ast_bp import (
+    ast_address_concretization_bp,
+    ast_constraints_bp,
+    ast_mem_read_bp,
+    ast_reg_write_bp_iv_simplify,
+)
 from .ast_bp import ast_mem_write_bp
 from .ast_bp import ast_reg_write_bp_iv_init
+
 # from .ast_bp import handle_inst
 
 from .constant import weight_mem_start
 from .constant import io_mem_start
 from .constant import act_mem_start
 
-from .dbg import StatefulDebug, address_concretization_debug, constraints_debug, mem_read_debug, state_debug_post, state_debug_pre
+from .dbg import (
+    StatefulDebug,
+    address_concretization_debug,
+    constraints_debug,
+    mem_read_debug,
+    state_debug_post,
+    state_debug_pre,
+)
 
 from .locals import SimStateLocals
 
 from .branch_type import Branch
 
+from .anno import MemReadAnnotation
+
 import angr
+
+from IPython import embed
 
 
 def tvmallocate(state):
     print("allocate bypass")
-    state.regs.r2 = state.solver.BVS('allocate_addr', 32)
+    state.regs.r2 = state.solver.BVS("allocate_addr", 32)
 
 
-def extract_ast(proj, func_addr, outer_loop_idx, timeout=500):
-    '''
-    1. We collect all the addr with mem_write
-    2. We mark all ivs with sym var and symbolic execute the nested loop. We keep forcing 
+def extract_ast(proj, func_addr, register_view=None, timeout=500):
+    """
+    Goal: collect all the addr with mem_write
+    Approach: mark all ivs with sym var and symbolic execute the nested loops. We keep forcing
         break edge until all mem_write is met
+    """
 
-    FIXME: we dont connect different loops/layers now
-    FIXME: assume conditional inst, otherwise state explosion could happen
-    '''
+    assert func_addr in proj.funcs
+    assert (
+        len(proj.outer_loops[func_addr]) == 1 or len(proj.outer_loops[func_addr]) == 2
+    )
 
-    assert (func_addr in proj.funcs)
-    assert (outer_loop_idx in range(len(proj.outer_loops[func_addr])))
-
-    outer_loop = proj.outer_loops[func_addr][outer_loop_idx]
+    if len(proj.outer_loops[func_addr]) == 1:
+        outer_loop = proj.outer_loops[func_addr][0]
+    elif len(proj.outer_loops[func_addr]) == 2:
+        outer_loop = proj.outer_loops[func_addr][1]
+    else:
+        assert False
 
     # init options
     add_options = set()
-    add_options.add(angr.sim_options.CONSTRAINT_TRACKING_IN_SOLVER)
+    # This would cause z3 exception in some cases
+    # add_options.add(angr.sim_options.CONSTRAINT_TRACKING_IN_SOLVER)
     remove_options = set()
     # remove_options.add(angr.sim_options.LAZY_SOLVES)
     # https://github.com/angr/angr/issues/2321
@@ -48,17 +76,52 @@ def extract_ast(proj, func_addr, outer_loop_idx, timeout=500):
 
     # init entry_state
     entry_addr = outer_loop[0].entry_edge_src_blk_addr
-    prologue_end_addr = proj.func_prologue_end_addr[func_addr]
-    entry_state = proj.factory.blank_state(addr=func_addr,
-                                           add_options=add_options,
-                                           remove_options=remove_options)
+    # prologue_end_addr = proj.func_prologue_end_addr[func_addr]
+    entry_state = proj.factory.blank_state(
+        addr=func_addr, add_options=add_options, remove_options=remove_options
+    )
     entry_state.solver._solver.timeout = timeout
-    '''
+    """
     # weird that range will cause unsat issue (related to added constraints),
     # when we dont disable addr concretization
     assert (isinstance(entry_state.memory.read_strategies.pop(0), 
                        angr.concretization_strategies.range.SimConcretizationStrategyRange))
-    '''
+    """
+
+    # propagte the arguments
+    if register_view:
+        # TODO: now it only propagates the first 4 args
+        assert is_arm_arch(proj.arch)
+        entry_state.regs.r0 = register_view.r0
+        entry_state.regs.r1 = register_view.r1
+        entry_state.regs.r2 = register_view.r2
+        entry_state.regs.r3 = register_view.r3
+    
+    # clear constant dict
+    proj.constant_read_dict = {}
+    proj.constant_read_list = []
+    proj.constant_dict = {}
+
+    # TODO: we need it in the first loop to keep track of the bias
+    # set the mem_read bp to annotate the memory read address
+    # It is when the read_addr_sym is concretized and read_expr is loaded,
+    # but register not written, since it is on VEX IR level.
+    entry_state.inspect.b("mem_read", when=angr.BP_AFTER, action=ast_mem_read_bp)
+
+    # concrete execution to the beginning of the second nested loops, if there is one
+    if len(proj.outer_loops[func_addr]) == 2:
+        print("start concrete execution to ", hex(entry_addr))
+        simgr = proj.factory.simgr(entry_state)
+        while True:
+            assert len(simgr.active) == 1
+            simgr.step(num_inst=1)
+
+            # print(hex(simgr.active[0].addr))
+
+            if simgr.active[0].addr == entry_addr:
+                break
+        entry_state = simgr.active[0]
+        print("finish concrete execution to ", hex(entry_addr))
 
     outer_loop_end_addr = outer_loop[0].break_edge_dest_blk_addr
 
@@ -69,12 +132,12 @@ def extract_ast(proj, func_addr, outer_loop_idx, timeout=500):
     entry_state.globals["iv_dict"] = {}
 
     # flag
-    entry_state.globals['flag'] = {}
-    entry_state.globals['flag']['cond'] = False
+    entry_state.globals["flag"] = {}
+    entry_state.globals["flag"]["cond"] = False
 
     # registerlocals plugin:
     # dont use globals plugin because that's global (shallow-copy dict)
-    entry_state.register_plugin('locals', SimStateLocals())
+    entry_state.register_plugin("locals", SimStateLocals())
 
     # entered_loops -- see comments below
     entry_state.locals["entered_loops"] = {}
@@ -89,40 +152,33 @@ def extract_ast(proj, func_addr, outer_loop_idx, timeout=500):
     # init the arg-init IV before registering bp
     for iv in outer_loop[0]._iv_dict.values():
         if iv.from_arg:
-            assert (hasattr(entry_state.regs, iv.reg))
+            assert hasattr(entry_state.regs, iv.reg)
             arg_iv_sym = entry_state.solver.BVS(iv.name, proj.bit)
             setattr(entry_state.regs, iv.reg, arg_iv_sym)
 
-    # hack to bypass tvm allocate
+    # bypass tvm allocate
     # proj.hook(0x10391, tvmallocate, 4)
 
-    # set the mem_read bp to annotate the memory read address
-    # It is when the read_addr_sym is concretized and read_expr is loaded,
-    # but register not written, since it is on VEX IR level.
-    entry_state.inspect.b('mem_read',
-                          when=angr.BP_AFTER,
-                          action=ast_mem_read_bp)
-
     # collect the ast of memory write
-    entry_state.inspect.b('mem_write',
-                          when=angr.BP_AFTER,
-                          action=ast_mem_write_bp)
+    entry_state.inspect.b("mem_write", when=angr.BP_AFTER, action=ast_mem_write_bp)
 
     # reg_write bp to make entry block symbolic and register in dict
-    entry_state.inspect.b('reg_write',
-                          when=angr.BP_BEFORE,
-                          action=ast_reg_write_bp_iv_init)
+    entry_state.inspect.b(
+        "reg_write", when=angr.BP_BEFORE, action=ast_reg_write_bp_iv_init
+    )
 
     # reg_write bp to simplify iv-related expr
-    entry_state.inspect.b('reg_write',
-                          when=angr.BP_BEFORE,
-                          action=ast_reg_write_bp_iv_simplify)
+    entry_state.inspect.b(
+        "reg_write", when=angr.BP_BEFORE, action=ast_reg_write_bp_iv_simplify
+    )
 
     # disable adding constraints when concretizing IV-related addr
-    entry_state.inspect.b('address_concretization',
-                          when=angr.BP_AFTER,
-                          action=ast_address_concretization_bp)
-    '''
+    entry_state.inspect.b(
+        "address_concretization",
+        when=angr.BP_AFTER,
+        action=ast_address_concretization_bp,
+    )
+    """
     entry_state.inspect.b('constraints',
                           when=angr.BP_BEFORE,
                           action=ast_constraints_bp)
@@ -133,43 +189,42 @@ def extract_ast(proj, func_addr, outer_loop_idx, timeout=500):
     entry_state.inspect.b('address_concretization',
                           when=angr.BP_AFTER,
                           action=address_concretization_debug)
-    # not working
-    entry_state.inspect.b('fork',
-                          when=angr.BP_BEFORE,
-                          action=ast_fork_bp)
-    '''
-
-    loop_func = proj.funcs[get_func_addr_from_addr(proj, entry_addr)]
+    """
 
     simgr = proj.factory.simgr(entry_state)
+    loop_func = proj.funcs[func_addr]
+
+    # from .dbg import print_anno
+    # if register_view:
+    #     entry_state.regs.r0 = entry_state.regs.r0.annotate(MemReadAnnotation(func_addr))
+    # print_anno(entry_state.regs.r0)
+    # assert False
 
     while True:
-
         # for debugging
-        assert (len(simgr.active) == 1)
+        assert len(simgr.active) == 1
         state = simgr.active[0]
-        # debugger.debug(state)
-        # print(hex(state.addr))
+        print(hex(state.addr))
         # state_debug_pre(state)
         # print(simgr.stashed)
         # print(simgr.unsat)
         # print()
 
-        # handle prologue
-        if outer_loop_idx != 0 and state.addr == prologue_end_addr:
-            print("prologue jumping from ", state.regs.pc, " to ", entry_addr)
-            state.regs.pc = entry_addr
-        print(simgr.active)
+        # execute prologue and jump to the second nested loops
+        # if outer_loop_idx != 0 and state.addr == prologue_end_addr:
+        #     print("prologue jumping from ", state.regs.pc, " to ", entry_addr)
+        #     state.regs.pc = entry_addr
+        # print(simgr.active)
 
-        '''
+        """
         # step debug
         bp = [0x100392, 0x100421, 0x100310, 0x100314, 0x100318]
         if state.addr in bp:
             from IPython import embed
             embed()
-        '''
+        """
 
-        '''
+        """
         # constraint debug
         debug_iv_addr = 0x130ff 
         if debug_iv_addr in state.globals['iv_dict']:
@@ -181,25 +236,36 @@ def extract_ast(proj, func_addr, outer_loop_idx, timeout=500):
                 from IPython import embed
                 # embed()
                 # assert (False)
-        '''
+        """
 
         simgr.step(num_inst=1)
 
         # no unsupported irop
         if simgr.errored:
             print(simgr.errored)
-            assert (False)
+            from IPython import embed
+
+            embed()
+            assert False
 
         # debug
         # state = simgr.active[0]
+        # if state.addr == 0x102E5:
+        #     from IPython import embed
+        #     from src.dbg import print_anno
+
+        #     print_anno(state.regs.d0)
+
+        #     embed()
+        #     assert False
         # state_debug_post(state)
         # print(simgr.active)
 
         if len(simgr.active) > 1:
+            assert len(simgr.active) == 2
+            print("spawn @ ", hex(simgr.active[0].addr), hex(simgr.active[1].addr))
 
-            assert (len(simgr.active) == 2)
-
-            # match to the loop in outer_loop
+            # match to the loop in outer_loop: which loop we are at
             finished_loop = None
             branch_type = Branch.NON_LOOP
             addr_pair = (simgr.active[0].addr, simgr.active[1].addr)
@@ -209,16 +275,19 @@ def extract_ast(proj, func_addr, outer_loop_idx, timeout=500):
                     finished_loop = loop
                     break
 
-            # if-else branch
+            # If it is not a loop branch, just a if-else branch, we need to record the condition
             if finished_loop is None:
-                assert (branch_type == Branch.NON_LOOP)
-                state.globals['flag']['cond'] = True
+                assert branch_type == Branch.NON_LOOP
+                state.globals["flag"]["cond"] = True
                 stashed_addr = simgr.active[1].addr
                 print("move if-else to stashed @ ", hex(stashed_addr))
-                simgr.move(from_stash='active',
-                           to_stash='stashed',
-                           filter_func=lambda state: True
-                           if state.addr == stashed_addr else False)
+                simgr.move(
+                    from_stash="active",
+                    to_stash="stashed",
+                    filter_func=lambda state: True
+                    if state.addr == stashed_addr
+                    else False,
+                )
 
             # We are handling with several types of loop branch,
             # assuming that no ast logic between branches
@@ -226,53 +295,56 @@ def extract_ast(proj, func_addr, outer_loop_idx, timeout=500):
                 if branch_type == Branch.BREAK_CONT:
                     # drop the continue state
                     continue_addr = finished_loop.branch_continue_dest_addr
-                    assert (continue_addr in addr_pair)
+                    assert continue_addr in addr_pair
                     print("eliminate continue @ ", hex(continue_addr))
-                    simgr.drop(filter_func=lambda state: True
-                               if state.addr == continue_addr else False)
+                    simgr.drop(
+                        filter_func=lambda state: True
+                        if state.addr == continue_addr
+                        else False
+                    )
 
                     # to mark completed_loops, you have to retrieve another state
-                    assert (len(simgr.active) == 1)
+                    assert len(simgr.active) == 1
                     state = simgr.active[0]
-                    assert (finished_loop.entry.addr
-                            in state.locals["completed_loops"])
-                    assert (not state.locals["completed_loops"][
-                        finished_loop.entry.addr])
-                    state.locals["completed_loops"][
-                        finished_loop.entry.addr] = True
+                    assert finished_loop.entry.addr in state.locals["completed_loops"]
+                    assert not state.locals["completed_loops"][finished_loop.entry.addr]
+                    state.locals["completed_loops"][finished_loop.entry.addr] = True
 
                 # we dont follow break edge since there are more logic ahead
                 elif branch_type == Branch.BREAK:
                     # drop the (fake) break state
                     break_addr = finished_loop.break_edge_dest_blk_addr
-                    assert (break_addr in addr_pair)
+                    assert break_addr in addr_pair
                     print("eliminate break @ ", hex(break_addr))
-                    simgr.drop(filter_func=lambda state: True
-                               if state.addr == break_addr else False)
+                    simgr.drop(
+                        filter_func=lambda state: True
+                        if state.addr == break_addr
+                        else False
+                    )
 
                 else:
-                    assert (False)
+                    assert False
 
         # handle return-as-break situation
         elif len(simgr.active) == 1 and len(simgr.unconstrained):
-            assert (simgr.active[0].history.addr ==
-                    simgr.unconstrained[0].history.addr)
+            assert simgr.active[0].history.addr == simgr.unconstrained[0].history.addr
             branch_addr = simgr.active[0].history.addr
             finished_loop = None
             for loop in outer_loop[1]:
                 if branch_addr in loop.branch_addr:
                     finished_loop = loop
                     break
-            assert (finished_loop is not None)
+            assert finished_loop is not None
             # drop the continue state
             continue_addr = finished_loop.branch_continue_dest_addr
-            assert (continue_addr == simgr.active[0].addr)
+            assert continue_addr == simgr.active[0].addr
             print("eliminate continue @ ", hex(continue_addr))
-            simgr.drop(filter_func=lambda state: True
-                       if state.addr == continue_addr else False)
+            simgr.drop(
+                filter_func=lambda state: True if state.addr == continue_addr else False
+            )
 
         if simgr.active:
-            assert (len(simgr.active) == 1)
+            assert len(simgr.active) == 1
             state = simgr.active[0]  # important to use the latest state
 
             # Because of constraints added by if-else branch,
@@ -282,21 +354,41 @@ def extract_ast(proj, func_addr, outer_loop_idx, timeout=500):
             # FIXME: assumption here is memory write is inside loop
             for loop in outer_loop[1]:
                 if state.addr == loop.branch_continue_dest_addr:
-                    assert (loop.entry.addr in state.locals['entered_loops'])
-                    if state.locals['entered_loops'][loop.entry.addr] == False:
-                        state.locals['entered_loops'][loop.entry.addr] = True
+                    assert loop.entry.addr in state.locals["entered_loops"]
+                    if state.locals["entered_loops"][loop.entry.addr] == False:
+                        state.locals["entered_loops"][loop.entry.addr] = True
+                        print(
+                            "first time following continue edge of the loop @ ",
+                            hex(loop.entry.addr)
+                            + " with "
+                            + str(loop._iv.name)
+                            + " as IV",
+                        )
+                        break
                     else:
-                        simgr.move(from_stash='active',
-                                   to_stash='deadended',
-                                   filter_func=lambda state: True)
-                        print("end of visited loop @ ", hex(state.addr))
+                        simgr.move(
+                            from_stash="active",
+                            to_stash="deadended",
+                            filter_func=lambda state: True,
+                        )
+                        print(
+                            hex(state.addr) + " end of visited loop @ ",
+                            hex(loop.entry.addr)
+                            + " with "
+                            + str(loop._iv.name)
+                            + " as IV",
+                        )
+                        break
 
             # end of the outer loop
             if state.addr == outer_loop_end_addr or not check_in_func(
-                    loop_func, state.addr):
-                simgr.move(from_stash='active',
-                           to_stash='deadended',
-                           filter_func=lambda state: True)
+                loop_func, state.addr
+            ):
+                simgr.move(
+                    from_stash="active",
+                    to_stash="deadended",
+                    filter_func=lambda state: True,
+                )
                 print("end of outer loop @ ", hex(state.addr))
 
         if not simgr.active and not simgr.stashed:
@@ -311,10 +403,13 @@ def extract_ast(proj, func_addr, outer_loop_idx, timeout=500):
             print("move stash to active @ ", hex(stashed_state_addr))
             # by checking id, we essentially execute every possible path,
             # which is time-consuming
-            simgr.move(from_stash='stashed',
-                       to_stash='active',
-                       filter_func=lambda state: True
-                       if id(state) == stashed_state_id else False)
+            simgr.move(
+                from_stash="stashed",
+                to_stash="active",
+                filter_func=lambda state: True
+                if id(state) == stashed_state_id
+                else False,
+            )
 
     # refresh the proj, for processing next op
     mem_read_dict = proj.mem_read_dict
@@ -328,6 +423,6 @@ def extract_ast(proj, func_addr, outer_loop_idx, timeout=500):
     elif simgr.deadended:
         # choose one that can work (not garbage collected)
         solver = simgr.deadended[0].solver
-    assert (solver is not None)
+    assert solver is not None
 
     return simgr, solver, mem_read_dict, mem_write_dict

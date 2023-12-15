@@ -1,19 +1,22 @@
-class IV():
-    '''
+class IV:
+    """
     A data structure to represent IV
-    '''
-    def __init__(self,
-                 addr=None,
-                 reg=None,
-                 name=None,
-                 loop=None,
-                 increment=None,
-                 exit_condition=None,
-                 loop_count=None,
-                 init_sym=False,
-                 init_val=None,
-                 from_arg=False,
-                 is_aux=False):
+    """
+
+    def __init__(
+        self,
+        addr=None,
+        reg=None,
+        name=None,
+        loop=None,
+        increment=None,
+        exit_condition=None,
+        loop_count=None,
+        init_sym=False,
+        init_val=None,
+        from_arg=False,
+        is_aux=False,
+    ):
         self.addr = addr
         self.reg = reg
         self.name = name
@@ -47,33 +50,47 @@ class IV():
         self.reroll_increment = None
         self.reroll_count = None
 
+        # indicate the loop hierarchy, useful for created loop iv (IVRC)
+        self.completed_loop_iv_names = set()
+        self.ongoing_loop_iv_names = set()
+
     def set_iv_var(self, iv_var):
         self.iv_var = iv_var
 
     @property
     def total_count(self):
-        '''
+        """
         Return loop_count * increment
-        '''
+        """
         if self.increment is None:
-            assert (False)
+            assert False
         elif self.increment == 0:
-            # TODO: check it
-            assert (False)
+            # The loop is executed twice: at the first iteration, the iv is set to a number (usually stride) other than 0, and the loop exit condition is checking if the iv is 0.
             return 2
         else:
             return self.increment * self.loop_count
 
     def __repr__(self):
         try:
-            ret_str = "\n<IV @ %s>\n name: %s\n is_aux: %s\n reg: %s\n from_arg: %s\n loop_entry: %s\n loop_entry_edge: %s\n init_sym: %s\n init_val: %s\n increment: %s\n count: %s\n index_mem_write: %s\n" % (
-                hex(self.addr), self.name, self.is_aux, self.reg,
-                self.from_arg, hex(
-                    self.loop.entry.addr), self.loop.entry_edges[0],
-                self.init_sym, self.init_val, self.increment, self.loop_count,
-                [hex(addr) for addr in self.indexed_mem_write])
+            ret_str = (
+                "\n<IV @ %s>\n name: %s\n is_aux: %s\n reg: %s\n from_arg: %s\n loop_entry: %s\n loop_entry_edge: %s\n init_sym: %s\n init_val: %s\n increment: %s\n count: %s\n index_mem_write: %s\n"
+                % (
+                    hex(self.addr),
+                    self.name,
+                    self.is_aux,
+                    self.reg,
+                    self.from_arg,
+                    hex(self.loop.entry.addr),
+                    self.loop.entry_edges[0],
+                    self.init_sym,
+                    self.init_val,
+                    self.increment,
+                    self.loop_count,
+                    [hex(addr) for addr in self.indexed_mem_write],
+                )
+            )
         except:
-            ret_str = "\n<IV @ %s>\n" % self.name
+            ret_str = "\n<IV @ %s>\n count: %s\n" % (self.name, self.loop_count)
         return ret_str
 
     def get_constraints(self):
@@ -81,14 +98,14 @@ class IV():
         lower_bound = None
         type = None
         if self.increment == 0:
-            type = 'set'
+            type = "set"
         elif self.increment > 0:
             lower_bound = self.init_val
             upper_bound = self.init_val + self.increment * self.loop_count
-            type = 'increase'
+            type = "increase"
         elif self.increment < 0:
             upper_bound = self.init_val
             lower_bound = self.init_val + self.increment * self.loop_count
-            type = 'decrease'
+            type = "decrease"
 
         return (lower_bound, upper_bound, type)

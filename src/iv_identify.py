@@ -56,10 +56,11 @@ def _identify_iv(proj,
     '''
     # config
     add_options = set()
-    add_options.add(angr.sim_options.CONSTRAINT_TRACKING_IN_SOLVER)
-    add_options.add(angr.sim_options.TRACK_CONSTRAINTS)
-    add_options.add(angr.sim_options.TRACK_CONSTRAINT_ACTIONS)
-    add_options.add(angr.sim_options.TRACK_ACTION_HISTORY)
+    # This would cause z3 exception in some cases
+    # add_options.add(angr.sim_options.CONSTRAINT_TRACKING_IN_SOLVER)
+    # add_options.add(angr.sim_options.TRACK_CONSTRAINTS)
+    # add_options.add(angr.sim_options.TRACK_CONSTRAINT_ACTIONS)
+    # add_options.add(angr.sim_options.TRACK_ACTION_HISTORY)
     remove_options = set()
     remove_options.add(angr.sim_options.LAZY_SOLVES)
 
@@ -154,29 +155,23 @@ def _identify_iv(proj,
         assert (len(simgr.active) == 1)
         state = simgr.active[0]
 
-        print(simgr.active)
+        # print(simgr.active)
         if iv_var is not None:
             print('MIN: ', state.solver.min(iv_var))
-        print()
+        # print()
 
         if state.addr == 0x100241 and iv_var is None:
             iv_var = state.regs.rax
 
-        '''
-        if state.addr == 0x100290:
-            from IPython import embed
-            embed()
-        '''
-
         check_before_stepping(simgr)
 
-        print("before stepping:", simgr.active)
+        # print("before stepping:", simgr.active)
 
         simgr.step(num_inst=1)
 
         check_after_stepping(simgr, outer_loop)
 
-        print("after stepping:", simgr.active)
+        # print("after stepping:", simgr.active)
 
         # check reboot flag
         if proj._reboot:
@@ -426,8 +421,7 @@ def identify_iv(proj, func_addr, outer_loop_idx, all_branch=True):
 
     if not _check_iv(outer_loop, iv_dict):
         print("[identify_iv]: not pass check")
-        from IPython import embed
-        embed()
+        raise TimeoutError
 
     _estimate_iv(proj, iv_dict, iv_filtered)
 

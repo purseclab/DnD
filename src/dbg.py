@@ -4,25 +4,37 @@ import claripy
 
 
 def expr_debug(state):
-    print("[expr@", hex(state.addr), "]: expr: ", state.inspect.expr,
-          " expr_result", state.inspect.expr_result)
+    print(
+        "[expr@",
+        hex(state.addr),
+        "]: expr: ",
+        state.inspect.expr,
+        " expr_result",
+        state.inspect.expr_result,
+    )
 
     print()
 
 
 def sym_var_debug(state):
-    print("[sym_var_bp@", hex(state.addr), "]: sym_var_name: ",
-          state.inspect.symbolic_name, " sym_var_size",
-          state.inspect.symbolic_size, " sym_var_expr",
-          state.inspect.symbolic_expr)
+    print(
+        "[sym_var_bp@",
+        hex(state.addr),
+        "]: sym_var_name: ",
+        state.inspect.symbolic_name,
+        " sym_var_size",
+        state.inspect.symbolic_size,
+        " sym_var_expr",
+        state.inspect.symbolic_expr,
+    )
 
     print()
 
 
 def print_regs(state):
-    '''
+    """
     print out important registers
-    '''
+    """
     print("regular registers: ")
     print("[r0]: ", state.regs.r0)
     print("[r1]: ", state.regs.r1)
@@ -33,6 +45,9 @@ def print_regs(state):
     print("[r6]: ", state.regs.r6)
     print("[r7]: ", state.regs.r7)
     print("[r8]: ", state.regs.r8)
+    print("[r9]: ", state.regs.r8)
+    print("[r10]: ", state.regs.r8)
+    print("[r11]: ", state.regs.r8)
 
     # return
 
@@ -44,10 +59,13 @@ def print_regs(state):
     print("[d1]: ", state.regs.d1)
     print("[d2]: ", state.regs.d2)
     print("[d3]: ", state.regs.d3)
+    print("[d4]: ", state.regs.d4)
+    print("[d5]: ", state.regs.d5)
 
 
 def state_debug_pre(state):
-    print('------', hex(state.addr), '------')
+    print()
+    print("------", hex(state.addr), "------")
     for stmt in state.project.vex_stmt_map[state.addr]:
         stmt.pp()
     print()
@@ -56,9 +74,10 @@ def state_debug_pre(state):
 
 
 def state_debug_post(state):
-    '''
+    """
     print info that only available AFTER stepping
-    '''
+    """
+    print()
     print("After stepping")
     print("constraints:", state.solver.constraints)
     print_regs(state)
@@ -66,20 +85,33 @@ def state_debug_post(state):
 
 
 def mem_write_debug(state):
-    print("[mem_write @", hex(state.addr), "]: write_addr: ",
-          state.inspect.mem_write_address, " write_expr: ",
-          state.inspect.mem_write_expr, " write_cond: ",
-          state.inspect.mem_write_condition)
+    print(
+        "[mem_write @",
+        hex(state.addr),
+        "]: write_addr: ",
+        state.inspect.mem_write_address,
+        " write_expr: ",
+        state.inspect.mem_write_expr,
+        " write_cond: ",
+        state.inspect.mem_write_condition,
+    )
 
     print()
 
 
 def mem_read_debug(state):
-    print("[mem_read @", hex(state.addr), "]: read_addr_sym: ",
-          state.inspect.mem_read_address, " solve read_addr_sym",
-          solve_addr(state, state.inspect.mem_read_address), " read_expr: ",
-          state.inspect.mem_read_expr, " read_cond: ",
-          state.inspect.mem_read_condition)
+    print(
+        "[mem_read @",
+        hex(state.addr),
+        "]: read_addr_sym: ",
+        state.inspect.mem_read_address,
+        " solve read_addr_sym",
+        solve_addr(state, state.inspect.mem_read_address),
+        " read_expr: ",
+        state.inspect.mem_read_expr,
+        " read_cond: ",
+        state.inspect.mem_read_condition,
+    )
 
     print_regs(state)
     print()
@@ -96,35 +128,53 @@ def address_concretization_debug(state):
     if state.inspect.address_concretization_result is None:
         return
 
-    print("[addr concretized @ ", hex(state.addr), "]", " strategy: ",
-          state.inspect.address_concretization_strategy, " expr: ",
-          state.inspect.address_concretization_expr, " result: ",
-          state.inspect.address_concretization_result)
+    print(
+        "[addr concretized @ ",
+        hex(state.addr),
+        "]",
+        " strategy: ",
+        state.inspect.address_concretization_strategy,
+        " expr: ",
+        state.inspect.address_concretization_expr,
+        " result: ",
+        state.inspect.address_concretization_result,
+    )
     print()
 
 
 def reg_write_debug(state):
-
     reg_offset = state.inspect.reg_write_offset
     # print(reg_offset)
     if isinstance(reg_offset, claripy.ast.bv.BV):
-        assert (reg_offset.concrete)
+        assert reg_offset.concrete
         reg_offset = state.solver.eval(reg_offset)
     reg_size = state.inspect.reg_write_length
 
-    print("[reg_write @", hex(state.addr), "]: reg_to_write: ",
-          get_reg_name(state.project.arch, reg_offset,
-                       reg_size), " reg_write_expr: ",
-          state.inspect.reg_write_expr, " reg_write_expr obj: ",
-          hex(id(state.inspect.reg_write_expr)))
+    print(
+        "[reg_write @",
+        hex(state.addr),
+        "]: reg_to_write: ",
+        get_reg_name(state.project.arch, reg_offset, reg_size),
+        " reg_write_expr: ",
+        state.inspect.reg_write_expr,
+        " reg_write_expr obj: ",
+        hex(id(state.inspect.reg_write_expr)),
+    )
 
     print()
 
 
 def exit_debug(state):
-    print("[exit @", hex(state.addr), "]: exit_target: ",
-          state.inspect.exit_target, " exit_guard: ", state.inspect.exit_guard,
-          " exit_jumpkind: ", state.inspect.exit_jumpkind)
+    print(
+        "[exit @",
+        hex(state.addr),
+        "]: exit_target: ",
+        state.inspect.exit_target,
+        " exit_guard: ",
+        state.inspect.exit_guard,
+        " exit_jumpkind: ",
+        state.inspect.exit_jumpkind,
+    )
 
 
 def print_expr(expr):
@@ -157,11 +207,12 @@ def print_loop(loop):
     print()
 
 
-class StatefulDebug():
+class StatefulDebug:
     def __init__(self, start_addr):
         self.start_addr = start_addr
 
     def debug(self, state):
         if state.addr >= self.start_addr:
             from IPython import embed
+
             embed()
