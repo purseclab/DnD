@@ -495,6 +495,9 @@ def lift_max_min_pooling_relu(mem_write_dict):
 
 
 def is_data_movement(mem_write_dict):
+    if len(mem_write_dict) == 0:
+        return False
+    
     for addr in mem_write_dict:
         for record in mem_write_dict[addr]:
             if len(record.expr.annotations) == 0:

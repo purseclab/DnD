@@ -36,8 +36,6 @@ from .dbg import print_anno
 from math import e, isclose
 from itertools import combinations
 
-from IPython import embed
-
 
 def lift_ast_with_ongoing_loop(
     addr_expr, ast_expr, solver, all_ivs, completed_loop_iv_list, ongoing_loop_iv_list
@@ -80,9 +78,6 @@ def lift_ast_with_ongoing_loop(
             try:
                 reduce_term, reduce_iv = reduce_without_iv(ast_expr_list, solver)
             except:
-                from IPython import embed
-
-                embed()
                 assert False
 
             # Insert the created IV into all_ivs
@@ -160,9 +155,7 @@ def lift_ast_with_completed_loop(
 
         # it must be accumulated
         if acc_idx is None:
-            from IPython import embed
-
-            embed()
+            assert False
         assert acc_idx is not None
         print("accumulated term: ", ast_expr_args[acc_idx])
 
@@ -425,14 +418,11 @@ def reroll(proj, mem_write_lift_list, solver, all_ivs):
         # TODO: probably it is not the right place: it should happen when we construct the Sum
         # extract offset
         # offset = [
-        #     (mr.op_addr, proj.constant_read_dict[mr.op_addr])
-        #     for mr in mem_write_lift_list
+        #     (read_addr, val) for read_addr, val in proj.constant_read_dict.items()
         # ]
-        offset = [
-            (read_addr, val) for read_addr, val in proj.constant_read_dict.items()
-        ]
-        offset.sort(key=lambda x: x[0])
-        offset = [x[1] for x in offset]
+        # offset.sort(key=lambda x: x[0])
+        # offset = [x[1] for x in offset]
+        offset = proj.constant_read_list
 
         # return LiftedAST
         reduce_sum_mul = Sum(
@@ -506,9 +496,6 @@ def merge_loop(mem_write_lift_list, to_merge_iv_list):
                         mr.expr.update_idx(old_iv, new_iv)
                     except:
                         print("symvar replacement fail")
-                        from IPython import embed
-
-                        embed()
                         assert False
 
 

@@ -175,8 +175,8 @@ def ast_mem_read_bp(state):
     When memory read, we use the annotated address as the expr
     i.e., the return val is the address expression rather than value expression
     """
-    # print("[ast_mem_read_bp] @ ", hex(state.addr))
-    # print("read_addr: ", state.inspect.mem_read_address)
+    print("[ast_mem_read_bp] @ ", hex(state.addr))
+    print("read_addr: ", state.inspect.mem_read_address)
 
     src_addr = state.inspect.mem_read_address
 
@@ -186,10 +186,16 @@ def ast_mem_read_bp(state):
     #     assert False
 
     # return if concrete
+    # TODO: This is record the bias of convolution (loaded in the first nested loop). A better way is to annotate or symbolize the value so that we know it when later it is accumulated. Here we assume sequantial read.
     if src_addr.concrete:
         expr = state.inspect.mem_read_expr
-        if expr.concrete and expr.args[0] != 0:
-            state.project.constant_read_dict[state.addr] = state.inspect.mem_read_expr
+        if (
+            expr.concrete
+            and expr.args[0] != 0
+            and abs(src_addr.args[0] - state.regs.sp.args[0]) > 0x100
+        ):
+            print("push to constant_read_list: ", expr)
+            state.project.constant_read_list.append(expr)
         return
 
     # mem_read_debug(state)

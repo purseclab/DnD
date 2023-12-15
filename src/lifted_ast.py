@@ -8,6 +8,7 @@ from .utils import (
     retrieve_iv_var,
     iv_to_iv_name,
     bytes_to_float,
+    compare_coefficient,
 )
 from enum import Enum, auto
 
@@ -272,6 +273,7 @@ class LiftedAST:
             attributes["output_channel"] = self.output_channel_iv.size()
             attributes["kernel_height"] = self.kernel_height_iv.size()
             attributes["kernel_width"] = self.kernel_width_iv.size()
+            attributes["relu"] = self.relu_flag
 
             # input shape: [input_channel, k_h, k_w, height, width]
             height_iv = None
@@ -288,7 +290,7 @@ class LiftedAST:
                 iv_pairs = list(combinations(input_lifted_iv_list, 2))
                 ivs = [pair for pair in iv_pairs if pair[0].size() == pair[1].size()]
                 ivs.sort(key=lambda x: x[0].size())
-                print("ivs", ivs)
+                # print("ivs", ivs)
                 assert len(ivs) == 2
                 width_iv = ivs[0][0]
                 height_iv = ivs[0][1]
@@ -319,7 +321,7 @@ class LiftedAST:
                 attributes["output_width"] = output_ivs[1].size()
             else:
                 assert False
-            
+
             assert len(prev_info) <= 1
             if len(prev_info) == 1 and "output_height" in prev_info[0]:
                 prev_output_height = prev_info[0]["output_height"]
@@ -327,8 +329,8 @@ class LiftedAST:
                 assert prev_output_height == prev_output_width
 
                 # striding
-                print("prev_output_height", prev_output_height)
-                print("input_height", attributes["input_height"])
+                # print("prev_output_height", prev_output_height)
+                # print("input_height", attributes["input_height"])
                 if attributes["input_height"] < prev_output_height:
                     assert prev_output_height % attributes["input_height"] == 0
                     attributes["striding"] = (
@@ -342,13 +344,6 @@ class LiftedAST:
                 attributes["striding"] = 1
 
             # padding
-            print(attributes["output_height"] * attributes["striding"])
-            print(attributes["kernel_height"])
-            print(attributes["input_height"])
-            print(attributes["output_height"] * attributes["striding"]
-                + attributes["kernel_height"]
-                - attributes["input_height"]
-                - 1)
             attributes["padding"] = (
                 attributes["output_height"] * attributes["striding"]
                 + attributes["kernel_height"]
@@ -357,28 +352,31 @@ class LiftedAST:
             ) // 2
 
         elif self.op_type == AST_OP.FC:
-            return {
-                "output_size": self.col_idx_iv.size(),
-                "contracted_size": self.row_idx_iv.size(),
-                "input_size": 1,
-            }
+            attributes["output_size"] = self.col_idx_iv.size()
+            attributes["contracted_size"] = self.row_idx_iv.size()
+            attributes["input_size"] = 1
 
         elif self.op_type == AST_OP.MAXPOOL:
             # TODO: infer it from the context
             if self.kernel_size is None:
                 self.kernel_size = 3
-            return {
-                "kernel_shape": self.kernel_size,
-                "stride": self.kernel_size,
-            }
+            attributes["kernel_shape"] = self.kernel_size
+            attributes["stride"] = self.kernel_size
 
         elif self.op_type == AST_OP.ADD:
             attributes["output_height"] = prev_info[0]["output_height"]
             attributes["output_width"] = prev_info[0]["output_width"]
-        
+
         elif self.op_type == AST_OP.RELU:
             attributes["output_height"] = prev_info[0]["output_height"]
             attributes["output_width"] = prev_info[0]["output_width"]
+
+        elif self.op_type == AST_OP.AVGPOOL:
+            attributes["kernel_shape"] = self.kernel_size
+            attributes["stride"] = self.kernel_size
+
+        elif self.op_type == AST_OP.SOFTMAX:
+            return {"output_size": prev_info[0]["output_size"]}
 
         return attributes
 
@@ -395,29 +393,29 @@ class LiftedAST:
             assert self.kernel_height_iv is not None
             assert self.kernel_width_iv is not None
 
-            output_channel_iv = self.output_channel_iv
-            input_channel_iv = self.input_channel_iv
-            kernel_height_iv = self.kernel_height_iv
-            kernel_width_iv = self.kernel_width_iv
+            print(self.output_channel_iv)
+            print(self.input_channel_iv)
+            print(self.kernel_height_iv)
+            print(self.kernel_width_iv)
 
             # iterate through each iv in weight_expr and replace iv_var with the concrete value to get the weights
             weights = np.zeros(
                 (
-                    output_channel_iv.size(),
-                    input_channel_iv.size(),
-                    kernel_height_iv.size(),
-                    kernel_width_iv.size(),
+                    self.output_channel_iv.size(),
+                    self.input_channel_iv.size(),
+                    self.kernel_height_iv.size(),
+                    self.kernel_width_iv.size(),
                 )
             )
-            for output_channel_idx in range(output_channel_iv.size()):
-                for input_channel_idx in range(input_channel_iv.size()):
-                    for kernel_height_idx in range(kernel_height_iv.size()):
-                        for kernel_width_idx in range(kernel_width_iv.size()):
+            for output_channel_idx in range(self.output_channel_iv.size()):
+                for input_channel_idx in range(self.input_channel_iv.size()):
+                    for kernel_height_idx in range(self.kernel_height_iv.size()):
+                        for kernel_width_idx in range(self.kernel_width_iv.size()):
                             iv_assignment_list = [
-                                (output_channel_iv.iv_var, output_channel_idx),
-                                (input_channel_iv.iv_var, input_channel_idx),
-                                (kernel_height_iv.iv_var, kernel_height_idx),
-                                (kernel_width_iv.iv_var, kernel_width_idx),
+                                (self.output_channel_iv.iv_var, output_channel_idx),
+                                (self.input_channel_iv.iv_var, input_channel_idx),
+                                (self.kernel_height_iv.iv_var, kernel_height_idx),
+                                (self.kernel_width_iv.iv_var, kernel_width_idx),
                             ]
                             # remove the fake iv
                             iv_assignment_list = [
@@ -426,11 +424,8 @@ class LiftedAST:
                                 if assignment[0] is not None
                             ]
 
-                            # print(self.weight_expr)
-                            # print(iv_assignment_list)
-
                             weight_addr = replace_and_eval(
-                                iv_assignment_list, self.weight_expr, self._solver
+                                iv_assignment_list, self.weight_expr, state.solver
                             )
                             weight_bytes = state.memory.load(weight_addr, 4).args[0]
 
@@ -441,9 +436,9 @@ class LiftedAST:
                                 kernel_width_idx,
                             ] = bytes_to_float(weight_bytes, endian=False)
 
-            bias = np.zeros(output_channel_iv.size())
+            bias = np.zeros(self.output_channel_iv.size())
             if self.ast_expr.offset is not None:
-                for output_channel_idx in range(output_channel_iv.size()):
+                for output_channel_idx in range(self.output_channel_iv.size()):
                     bias[output_channel_idx] = bytes_to_float(
                         self.ast_expr.offset[output_channel_idx].args[0]
                     )
@@ -459,7 +454,7 @@ class LiftedAST:
                         (self.col_idx_iv.iv_var, col_idx),
                     ]
                     weight_addr = replace_and_eval(
-                        iv_assignment_list, self.weight_expr, self._solver
+                        iv_assignment_list, self.weight_expr, state.solver
                     )
                     weight_bytes = state.memory.load(weight_addr, 4).args[0]
                     weights[row_idx, col_idx] = bytes_to_float(
@@ -470,7 +465,7 @@ class LiftedAST:
             for col_idx in range(self.col_idx_iv.size()):
                 iv_assignment_list = [(self.col_idx_iv.iv_var, col_idx)]
                 bias_addr = replace_and_eval(
-                    iv_assignment_list, self.ast_expr.offset, self._solver
+                    iv_assignment_list, self.ast_expr.offset, state.solver
                 )
                 bias_bytes = state.memory.load(bias_addr, 4).args[0]
                 bias[col_idx] = bytes_to_float(bias_bytes, endian=False)
@@ -525,31 +520,32 @@ class LiftedAST:
             # FIXME: the following code needs refactoring
             # 1. reasoning which case it falls to
             # 2. merge with self.recover_attributes
-
             if num_ivs == 2:
                 # kernel size is 1x1
-                kernel_height_iv = LiftedIV("kernel_height", 0, 1, None, is_fake=True)
-                kernel_width_iv = LiftedIV("kernel_width", 0, 1, None, is_fake=True)
-                self.kernel_height_iv = kernel_height_iv
-                self.kernel_width_iv = kernel_width_iv
+                self.kernel_height_iv = LiftedIV(
+                    "kernel_height", 0, 1, None, is_fake=True
+                )
+                self.kernel_width_iv = LiftedIV(
+                    "kernel_width", 0, 1, None, is_fake=True
+                )
 
                 output_iv_var_list = retrieve_iv_var(self.addr_expr)
                 output_lifted_iv_list = [
                     self._iv_var_to_lifted_iv(iv_var) for iv_var in output_iv_var_list
                 ]
-                input_channel_iv = [
+                self.input_channel_iv = [
                     iv for iv in lifted_iv_list if iv not in output_lifted_iv_list
-                ]
-                self.input_channel_iv = input_channel_iv[0]
+                ][0]
 
-                output_channel_iv = [
+                self.output_channel_iv = [
                     iv for iv in lifted_iv_list if iv != input_channel_iv
-                ]
-                self.output_channel_iv = output_channel_iv[0]
+                ][0]
 
             elif num_ivs == 3:
                 # input_channel == 1
-                input_channel_iv = LiftedIV("input_channel", 0, 1, None, is_fake=True)
+                self.input_channel_iv = LiftedIV(
+                    "input_channel", 0, 1, None, is_fake=True
+                )
 
                 # kernel_height usually equals to kernel_width, and have the expr pattern "kernel_height_iv * kernel_width + kernel_width_iv" (i.e. access a element in a 2d array)
                 iv_pairs = list(combinations(lifted_iv_list, 2))
@@ -557,19 +553,24 @@ class LiftedAST:
                     pair for pair in iv_pairs if pair[0].size() == pair[1].size()
                 ]
                 assert len(kernel_ivs) == 1
-                kernel_width_iv = kernel_ivs[0][0]
-                kernel_height_iv = kernel_ivs[0][1]
 
-                output_channel_iv = [
+                if compare_coefficient(
+                    self.weight_expr,
+                    kernel_ivs[0][0].iv_var,
+                    kernel_ivs[0][1].iv_var,
+                    self._solver,
+                ):
+                    self.kernel_height_iv = kernel_ivs[0][0]
+                    self.kernel_width_iv = kernel_ivs[0][1]
+                else:
+                    self.kernel_height_iv = kernel_ivs[0][1]
+                    self.kernel_width_iv = kernel_ivs[0][0]
+
+                self.output_channel_iv = [
                     iv
                     for iv in lifted_iv_list
-                    if iv != kernel_width_iv and iv != kernel_height_iv
+                    if iv != self.kernel_width_iv and iv != self.kernel_height_iv
                 ][0]
-
-                self.output_channel_iv = output_channel_iv
-                self.input_channel_iv = input_channel_iv
-                self.kernel_height_iv = kernel_height_iv
-                self.kernel_width_iv = kernel_width_iv
 
             elif num_ivs == 4:
                 iv_pairs = list(combinations(lifted_iv_list, 2))
@@ -577,34 +578,48 @@ class LiftedAST:
                     pair for pair in iv_pairs if pair[0].size() == pair[1].size()
                 ]
                 kernel_ivs.sort(key=lambda x: x[0].size())
-                kernel_width_iv = kernel_ivs[0][0]
-                kernel_height_iv = kernel_ivs[0][1]
-                self.kernel_height_iv = kernel_height_iv
-                self.kernel_width_iv = kernel_width_iv
 
+                # one of the channel size equals to kernel size. A better way here to compare their coefficient.
+                if len(kernel_ivs) == 3:
+                    kernel_ivs = [
+                        ivs
+                        for ivs in kernel_ivs
+                        if "IVRC" not in ivs[0].name and "IVRC" not in ivs[1].name
+                    ]
+
+                if compare_coefficient(
+                    self.weight_expr,
+                    kernel_ivs[0][0].iv_var,
+                    kernel_ivs[0][1].iv_var,
+                    self._solver,
+                ):
+                    self.kernel_height_iv = kernel_ivs[0][0]
+                    self.kernel_width_iv = kernel_ivs[0][1]
+                else:
+                    self.kernel_height_iv = kernel_ivs[0][1]
+                    self.kernel_width_iv = kernel_ivs[0][0]
+                
                 # in the addr_expr, there is no input channel iv
                 addr_iv_var_list = retrieve_iv_var(self.addr_expr)
                 addr_lifted_iv_list = [
                     self._iv_var_to_lifted_iv(iv_var) for iv_var in addr_iv_var_list
                 ]
                 assert len(addr_lifted_iv_list) == 3
-                input_channel_iv = [
+                self.input_channel_iv = [
                     iv
                     for iv in lifted_iv_list
                     if iv not in addr_lifted_iv_list
-                    and iv != kernel_width_iv
-                    and iv != kernel_height_iv
+                    and iv != self.kernel_width_iv
+                    and iv != self.kernel_height_iv
                 ][0]
-                self.input_channel_iv = input_channel_iv
 
-                output_channel_iv = [
+                self.output_channel_iv = [
                     iv
                     for iv in lifted_iv_list
-                    if iv != kernel_width_iv
-                    and iv != kernel_height_iv
-                    and iv != input_channel_iv
+                    if iv != self.kernel_width_iv
+                    and iv != self.kernel_height_iv
+                    and iv != self.input_channel_iv
                 ][0]
-                self.output_channel_iv = output_channel_iv
 
             elif num_ivs == 5:
                 # When one outer loop is split into two
@@ -615,11 +630,18 @@ class LiftedAST:
                     pair for pair in iv_pairs if pair[0].size() == pair[1].size()
                 ]
                 kernel_ivs.sort(key=lambda x: x[0].size())
-                kernel_width_iv = kernel_ivs[0][0]
-                kernel_height_iv = kernel_ivs[0][1]
-                self.kernel_height_iv = kernel_height_iv
-                self.kernel_width_iv = kernel_width_iv
-
+                if compare_coefficient(
+                    self.weight_expr,
+                    kernel_ivs[0][0].iv_var,
+                    kernel_ivs[0][1].iv_var,
+                    self._solver,
+                ):
+                    self.kernel_height_iv = kernel_ivs[0][0]
+                    self.kernel_width_iv = kernel_ivs[0][1]
+                else:
+                    self.kernel_height_iv = kernel_ivs[0][1]
+                    self.kernel_width_iv = kernel_ivs[0][0]
+                
                 # remaining three are output and input channel
 
                 # in the addr_expr, there is no input channel iv
@@ -627,26 +649,23 @@ class LiftedAST:
                 addr_lifted_iv_list = [
                     self._iv_var_to_lifted_iv(iv_var) for iv_var in addr_iv_var_list
                 ]
-                from IPython import embed
 
-                embed()
                 assert len(addr_lifted_iv_list) == 4
-                input_channel_iv = [
+                self.input_channel_iv = [
                     iv
                     for iv in lifted_iv_list
                     if iv not in addr_lifted_iv_list
-                    and iv != kernel_width_iv
-                    and iv != kernel_height_iv
+                    and iv != self.kernel_width_iv
+                    and iv != self.kernel_height_iv
                 ][0]
-                self.input_channel_iv = input_channel_iv
 
                 # the other two are output_channel_iv, we eliminate the first one and modify the second one
                 output_channel_iv_list = [
                     iv
                     for iv in lifted_iv_list
-                    if iv != input_channel_iv
-                    and iv != kernel_width_iv
-                    and iv != kernel_height_iv
+                    if iv != self.input_channel_iv
+                    and iv != self.kernel_width_iv
+                    and iv != self.kernel_height_iv
                 ]
                 to_eliminate_iv = output_channel_iv_list[0]
                 self.addr_expr = self.addr_expr.replace(

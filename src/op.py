@@ -228,10 +228,9 @@ class Sum:
         self._idx_iv = idx_iv
 
     def __repr__(self):
-        return "[Sum] \nidx: %s\n expr:\n %s\n offset:\n %s\n" % (
+        return "[Sum] \nidx: %s\n expr:\n %s\n" % (
             [_iv.name for _iv in self._idx_iv],
             self._expr,
-            self._offset,
         )
 
     @property

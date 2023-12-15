@@ -99,6 +99,7 @@ def extract_ast(proj, func_addr, register_view=None, timeout=500):
     
     # clear constant dict
     proj.constant_read_dict = {}
+    proj.constant_read_list = []
     proj.constant_dict = {}
 
     # TODO: we need it in the first loop to keep track of the bias

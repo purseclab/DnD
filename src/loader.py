@@ -144,6 +144,7 @@ def load(bin_path, dispatch_addr=None, arch=None):
     proj.mem_read_dict = {}
     proj.mem_write_dict = {}
     proj.constant_read_dict = {}
+    proj.constant_read_list = []
     proj.constant_dict = {}
 
     # init mem_write_llft_dict

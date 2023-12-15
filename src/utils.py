@@ -745,4 +745,37 @@ def bytes_to_float(hex_bytes, endian=True):
             "f",
             bytes.fromhex(weight_hex_str),
         )[0]
-        
+
+
+def compare_coefficient(expr, iv_var_0, iv_var_1, solver):
+    """
+    compare the coefficient of iv_var_0 and iv_var_1 in expr
+    for example, in
+
+    <BV32 0x80002dc0 + ((0x0 + IV_0x60005299_3504_32 * 0x3 + IV_0x600052bd_3505_32) * 0x3 + IV_0x600052f5_3506_32 + ((0x0 + IV_0x60005299_3504_32 * 0x3 + IV_0x600052bd_3505_32) * 0x3 + IV_0x600052f5_3506_32) * 0x2) * 0x4 + 0x4 * IVRC_777500_3516_32>
+
+    IV_0x600052f5 has the greater coefficient than IVRC_777500_3516_32
+
+    The intuition is that row index has the greater coefficient than col index
+    """
+    iv_var_list = retrieve_iv_var(expr)
+    trivial_iv_var_list = [
+        iv_var
+        for iv_var in iv_var_list
+        if iv_var_0.__str__() != iv_var.__str__()
+        and iv_var_1.__str__() != iv_var.__str__()
+    ]
+
+    iv_var_0_replace_list = [(iv_var, 0) for iv_var in trivial_iv_var_list] + [
+        (iv_var_0, 1),
+        (iv_var_1, 0),
+    ]
+    iv_var_0_val = replace_and_eval(iv_var_0_replace_list, expr, solver)
+
+    iv_var_1_replace_list = [(iv_var, 0) for iv_var in trivial_iv_var_list] + [
+        (iv_var_0, 0),
+        (iv_var_1, 1),
+    ]
+    iv_var_1_val = replace_and_eval(iv_var_1_replace_list, expr, solver)
+
+    return True if iv_var_0_val > iv_var_1_val else False
