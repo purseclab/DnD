@@ -1,6 +1,6 @@
 # DnD: A Cross-Architecture Deep Neural Network Decompiler
 
-DND is the first compiler- and ISA-agnostic deep neural network (DNN) decompiler capable of reverse engineering DNN models from compiled binaries. 
+DND is a deep neural network (DNN) decompiler capable of reverse engineering DNN models from compiled binaries. 
 
 ### Environment  
 1. Create a Python virtual environment
