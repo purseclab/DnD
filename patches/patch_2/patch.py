@@ -1,13 +1,12 @@
 #!/usr/bin/env python
 
-from patcherex2 import *
-from patcherex2.targets import ElfArmMimxrt1052
-from patcherex2.allocation_management.allocation_management import *
+from patcherex import *
+from patcherex.targets import ElfArmMimxrt1052
 import logging
 
 BIN_PATH = "./evkbimxrt1050_glow_cifar10_new.axf"
 
-logging.getLogger("patcherex2").setLevel("DEBUG")
+logging.getLogger("patcherex").setLevel("DEBUG")
 
 p = Patcherex(BIN_PATH, target_cls=ElfArmMimxrt1052)
 

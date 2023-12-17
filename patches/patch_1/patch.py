@@ -2,7 +2,7 @@
 
 from patcherex import *
 from patcherex.targets import ElfArmMimxrt1052
-from patcherex.allocation_management.allocation_management import *
+import struct
 import logging
 
 BIN_PATH = "./evkbimxrt1050_glow_lenet_mnist_new.axf"
