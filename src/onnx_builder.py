@@ -11,7 +11,7 @@ from collections import deque
 from .lifted_ast import AST_OP
 
 
-def export_onnx(lifted_ast_map, adj_map, op_info):
+def export_onnx(lifted_ast_map, adj_map, op_info, filename="export_onnx"):
     # onnx graph building blocks
     created_nodes = []
     created_inputs = []
@@ -227,7 +227,7 @@ def export_onnx(lifted_ast_map, adj_map, op_info):
     check_model(model)
     print("pass model-check")
 
-    onnx.save_model(model, "exported.onnx")
+    onnx.save_model(model, filename)
 
 
 def make_conv(
