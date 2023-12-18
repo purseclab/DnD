@@ -5,7 +5,7 @@ angr==9.0.9166
 angr-management==9.0.9166
 appdirs==1.4.4
 archinfo==9.0.9166
--e git+ssh://git@github.com/angr/archr@2edbee0ad69507785a724d8d690f475d2f78fe64#egg=archr
+-e git+https://github.com/angr/archr@2edbee0ad69507785a724d8d690f475d2f78fe64#egg=archr
 argon2-cffi==20.1.0
 arrow==1.1.1
 astroid==2.5.6
