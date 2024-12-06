@@ -243,19 +243,19 @@ class Dnn:
             for insn in block.capstone.insns:
                 asm = asm + "  " + insn.mnemonic + " " + insn.op_str + "\n"
                 #print(insn)
-            if insn.mnemonic in ["bl", "blx"]:
-                if insn.operands:
-                    for operand in insn.operands:
-                        target_address = operand.imm
-                        print(
-                            "Found call at: ",
-                            hex(insn.address), "target: ",
-                            hex(target_address)
-                        )
-                        if target_address == predecessor_op.addr:
-                            asm = asm + "\tpush {R0-R12}\n"
-                            asm = asm + "  bl " + new_op_sym + "\n"
-                            asm = asm + "\tpop {R0-R12}\n"
+                if insn.mnemonic in ["bl", "blx"]:
+                    if insn.operands:
+                        for operand in insn.operands:
+                            target_address = operand.imm
+                            print(
+                                "Found call at: ",
+                                hex(insn.address), "target: ",
+                                hex(target_address)
+                            )
+                            if target_address == predecessor_op.addr:
+                                asm = asm + "\tpush {R0-R12}\n"
+                                asm = asm + "  bl " + new_op_sym + "\n"
+                                asm = asm + "\tpop {R0-R12}\n"
 
         return dispatcher_sym, asm
 
@@ -319,15 +319,22 @@ class Dnn:
             input_buffer = output_buffer
         elif output_buffer is None:
             output_buffer = input_buffer
-        
+       
+        low_in = input_buffer[0] & 0xffff
+        high_in = (input_buffer[0] >> 16) & 0xffff
+
+        low_out = output_buffer[0] & 0xffff
+        high_out = (output_buffer[0] >> 16) & 0xffff
+
+
         tramp_sym = target_sym + "_tramp"
 
         asm = tramp_sym + ":\n"
-        #asm = asm + "\tpush {R0-R12}\n"
-        asm = asm + "\tmovw R0, #" + str(input_buffer[0]) + "\n"
-        asm = asm + "\tmovw R1, #" + str(output_buffer[0]) + "\n"
+        asm = asm + "  movw R0, #" + str(low_in) + "\n"
+        asm = asm + "  movt R0, #" + str(high_in) + "\n"
+        asm = asm + "  movw R1, #" + str(low_out) + "\n"
+        asm = asm + "  movt R1, #" + str(high_out) + "\n"
         asm = asm + "\tb " + target_sym + "\n"
-        #asm = asm + "\tpop {R0-R12}\n"
 
         return tramp_sym,asm
 
@@ -432,8 +439,30 @@ class Dnn:
         self.patcher.patches.append(
             InsertInstructionPatch("dispatch_new", op_asm)
         )
+        dispatcher_caller = self.proj.funcs[self.proj.dispatch_caller_addr]
+        dispatch_call_site = None
+        for block in dispatcher_caller.blocks:
+            for insn in block.capstone.insns:
+                if insn.mnemonic in ["bl", "blx"]:
+                    if insn.operands:
+                        for operand in insn.operands:
+                            target_address = operand.imm
+                            print(
+                                "Found call at: ",
+                                hex(insn.address), "target: ",
+                                hex(target_address)
+                            )
+                            if target_address == self.proj.dispatch_addr:
+                                dispatch_call_site = insn.address
+
+        print("Dispatch call site: ",hex(dispatch_call_site))
+
+        mask = 0xfffffffe
         self.patcher.patches.append(
-            InsertInstructionPatch(self.proj.dispatch_addr, "bl dispatch_new")
+            ModifyInstructionPatch(
+                dispatch_call_site & mask, 
+                "bl {dispatch_new}"
+            )
         )
 
 

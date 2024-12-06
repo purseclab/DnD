@@ -266,6 +266,7 @@ def prop_func_arg(proj, dispatch_addr):
             dispatch_caller_addr = f_addr
     assert dispatch_caller_addr is not None
     print("dispatch caller addr: ", hex(dispatch_caller_addr))
+    proj.dispatch_caller_addr = dispatch_caller_addr
 
     # calculate all the calling sites in the dispatcher and hook them
     callsite_callee_map = {}
