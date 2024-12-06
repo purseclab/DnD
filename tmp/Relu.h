@@ -30,21 +30,21 @@
 //                          Bundle API
 // ---------------------------------------------------------------
 // Model name: "Relu"
-// Total data size: 2048 (bytes)
+// Total data size: 50176 (bytes)
 // Activations allocation efficiency: 0.0000
 // Placeholders:
 //
 //   Name: "inputs"
-//   Type: float<1 x 16 x 4 x 4>
-//   Size: 256 (elements)
-//   Size: 1024 (bytes)
+//   Type: float<1 x 8 x 28 x 28>
+//   Size: 6272 (elements)
+//   Size: 25088 (bytes)
 //   Offset: 0 (bytes)
 //
 //   Name: "relu_0_output"
-//   Type: float<1 x 16 x 4 x 4>
-//   Size: 256 (elements)
-//   Size: 1024 (bytes)
-//   Offset: 1024 (bytes)
+//   Type: float<1 x 8 x 28 x 28>
+//   Size: 6272 (elements)
+//   Size: 25088 (bytes)
+//   Offset: 25088 (bytes)
 //
 // NOTE: Placeholders are allocated within the "mutableWeight"
 // buffer and are identified using an offset relative to base.
@@ -55,11 +55,11 @@ extern "C" {
 
 // Placeholder address offsets within mutable buffer (bytes).
 #define RELU_inputs         0
-#define RELU_relu_0_output  1024
+#define RELU_relu_0_output  25088
 
 // Memory sizes (bytes).
 #define RELU_CONSTANT_MEM_SIZE     0
-#define RELU_MUTABLE_MEM_SIZE      2048
+#define RELU_MUTABLE_MEM_SIZE      50176
 #define RELU_ACTIVATIONS_MEM_SIZE  0
 
 // Memory alignment (bytes).
