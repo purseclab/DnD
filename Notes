@@ -1,0 +1,20 @@
+arm-linux-gnueabi-g++ main.cpp Relu.o -o Relu
+arm-none-eabi-objdump -d Relu > Relu.dum
+
+bin/model-compiler -backend=CPU -model=/home/soumya/DnD/onnx_models/mnist.onnx -emit-bundle=output -target=arm -mcpu=cortex-m7
+
+Code to add new operator
+-------------------------------------------------------------------------------
+source patcherex/bin/activate
+
+import importlib
+import dnnpatcher
+
+dnn.load(binpath)
+dnn.display() --get the ids for inodes
+dnn.createNewOp("Relu",[1],[2])
+dnn.addNewOp()
+dnn.applyPatches()
+--------------------------------------------------------------------------------
+
+
