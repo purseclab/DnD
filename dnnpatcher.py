@@ -437,7 +437,7 @@ class Dnn:
         #print(dispatcher_asm)
         print(op_asm)
         self.patcher.patches.append(
-            InsertInstructionPatch("dispatch_new", op_asm)
+            InsertInstructionPatch("dispatch_new", op_asm, is_thumb=True)
         )
         dispatcher_caller = self.proj.funcs[self.proj.dispatch_caller_addr]
         dispatch_call_site = None
