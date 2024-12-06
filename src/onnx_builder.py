@@ -1,5 +1,5 @@
 import onnx
-from onnx import helper
+from onnx import helper, shape_inference
 from onnx.helper import make_model, make_node, make_graph, make_tensor_value_info
 from onnx import AttributeProto, TensorProto, GraphProto, numpy_helper
 import numpy as np
@@ -20,6 +20,7 @@ def export_onnx(lifted_ast_map, adj_map, op_info, filename="export_onnx"):
 
     # used to keep track of previous outputs
     output_dict = {}
+    output_node_dict = {}
 
     incoming_edge_map = {}
     for addr in lifted_ast_map.keys():
@@ -46,7 +47,11 @@ def export_onnx(lifted_ast_map, adj_map, op_info, filename="export_onnx"):
             op_info[start_node_addr]["input_height"],
         ],
     )
-    created_inputs.append(inputs_node)
+    if op_info[start_node_addr] == AST_OP.ADD:
+        created_inputs.append(inputs_node)
+        created_inputs.append(inputs_node)
+    else:
+        created_inputs.append(inputs_node)
 
     # worklist
     working_list = [start_node_addr]
@@ -67,7 +72,11 @@ def export_onnx(lifted_ast_map, adj_map, op_info, filename="export_onnx"):
 
         prev_output = []
         if len(output_dict) == 0:
-            prev_output.append("inputs")
+            if cur_node_info["op"] == AST_OP.ADD:
+                prev_output.append("inputs_1")
+                prev_output.append("inputs_2")
+            else:
+                prev_output.append("inputs")
         else:
             prev_output.extend(
                 [
@@ -76,6 +85,21 @@ def export_onnx(lifted_ast_map, adj_map, op_info, filename="export_onnx"):
                     if cur_node_addr in adj_map[addr]
                 ]
             )
+        prev_output_node = []
+        if len(output_node_dict) == 0:
+            prev_output_node.append(inputs_node)
+        else:
+            prev_output_node.extend(
+                [
+                    output_node_dict[addr]
+                    for addr in adj_map.keys()
+                    if cur_node_addr in adj_map[addr]
+                ]
+            )
+        prev_node_addr = []
+        for addr in adj_map.keys():
+            if cur_node_addr in adj_map[addr]:
+                prev_node_addr.append(addr)
         assert len(prev_output) > 0
 
         if cur_node_info["op"] == AST_OP.CONV:
@@ -103,22 +127,49 @@ def export_onnx(lifted_ast_map, adj_map, op_info, filename="export_onnx"):
                 cur_node_info["bias"],
             )
             created_nodes.extend(nodes)
-            created_inputs.extend(inputs)
+            #created_inputs.extend(inputs)
             created_inits.extend(inits)
             conv_output = nodes[0].output[0]
             output_dict[cur_node_addr] = nodes[0].output[0]
 
-            if cur_node_info["relu"]:
+            output_node = make_tensor_value_info(
+                output_dict[cur_node_addr], 
+                TensorProto.FLOAT, 
+                [
+                    1,  # batch size
+                    op_info[cur_node_addr]["output_channel"],
+                    op_info[cur_node_addr]["output_width"],
+                    op_info[cur_node_addr]["output_height"],
+                ]
+            )
+            #created_outputs.append(output_node)
+            output_node_dict[cur_node_addr] = output_node
+            prev_output_node = prev_output_node[0]
+            #created_inputs.append(prev_output_node)
+
+            if "relu" in cur_node_info.keys() and cur_node_info["relu"]:
                 node_name = "relu_" + str(node_id)
                 node_id += 1
                 nodes = make_relu(node_name, conv_output, node_name + "_output")
                 created_nodes.extend(nodes)
                 output_dict[cur_node_addr] = nodes[0].output[0]
+                relu_output_node = make_tensor_value_info(
+                    output_dict[cur_node_addr], 
+                    TensorProto.FLOAT, 
+                    [
+                        1,  # batch size
+                        op_info[cur_node_addr]["output_channel"],
+                        op_info[cur_node_addr]["output_width"],
+                        op_info[cur_node_addr]["output_height"],
+                    ]
+                )
+                #created_outputs.append(relu_output_node)
+                output_node_dict[cur_node_addr] = relu_output_node
+                #created_inputs.append(output_node)
 
         elif cur_node_info["op"] == AST_OP.MAXPOOL:
             assert len(prev_output) == 1
             prev_output = prev_output[0]
-
             node_name = "maxpool_" + str(node_id)
             node_id += 1
             nodes = make_maxpool(
@@ -130,6 +181,21 @@ def export_onnx(lifted_ast_map, adj_map, op_info, filename="export_onnx"):
             )
             created_nodes.extend(nodes)
             output_dict[cur_node_addr] = nodes[0].output[0]
+            print("Output of MAXPOOL node: ", output_dict[cur_node_addr])
+            output_node = make_tensor_value_info(
+                output_dict[cur_node_addr], 
+                TensorProto.FLOAT, 
+                [
+                    1,  # batch size
+                    op_info[cur_node_addr]["output_channel"],
+                    op_info[cur_node_addr]["output_width"],
+                    op_info[cur_node_addr]["output_height"],
+                ]
+            )
+            #created_outputs.append(output_node)
+            output_node_dict[cur_node_addr] = output_node
+            prev_output_node = prev_output_node[0]
+            #created_inputs.append(prev_output_node)
 
         elif cur_node_info["op"] == AST_OP.FC:
             assert len(prev_output) == 1
@@ -148,9 +214,16 @@ def export_onnx(lifted_ast_map, adj_map, op_info, filename="export_onnx"):
                 cur_node_info["bias"],
             )
             created_nodes.extend(nodes)
-            created_inputs.extend(inputs)
+            #created_inputs.extend(inputs)
             created_inits.extend(inits)
             output_dict[cur_node_addr] = nodes[0].output[0]
+            output_node = make_tensor_value_info(
+                output_dict[cur_node_addr], TensorProto.FLOAT, [1, cur_node_info["output_size"]]
+            )
+            #created_outputs.append(output_node)
+            output_node_dict[cur_node_addr] = output_node
+            prev_output_node = prev_output_node[0]
+            #created_inputs.append(prev_output_node)
 
         elif cur_node_info["op"] == AST_OP.RELU:
             assert len(prev_output) == 1
@@ -161,6 +234,20 @@ def export_onnx(lifted_ast_map, adj_map, op_info, filename="export_onnx"):
             nodes = make_relu(node_name, prev_output, node_name + "_output")
             created_nodes.extend(nodes)
             output_dict[cur_node_addr] = nodes[0].output[0]
+            output_node = make_tensor_value_info(
+                output_dict[cur_node_addr], 
+                TensorProto.FLOAT, 
+                [
+                    1,  # batch size
+                    op_info[cur_node_addr]["output_channel"],
+                    op_info[cur_node_addr]["output_width"],
+                    op_info[cur_node_addr]["output_height"],
+                ]
+            )
+            #created_outputs.append(output_node)
+            output_node_dict[cur_node_addr] = output_node
+            prev_output_node = prev_output_node[0]
+            #created_inputs.append(prev_output_node)
 
         elif cur_node_info["op"] == AST_OP.ADD:
             assert len(prev_output) == 2
@@ -177,6 +264,20 @@ def export_onnx(lifted_ast_map, adj_map, op_info, filename="export_onnx"):
             )
             created_nodes.extend(nodes)
             output_dict[cur_node_addr] = nodes[0].output[0]
+            output_node = make_tensor_value_info(
+                output_dict[cur_node_addr], 
+                TensorProto.FLOAT, 
+                [
+                    1,  # batch size
+                    op_info[cur_node_addr]["output_channel"],
+                    op_info[cur_node_addr]["output_width"],
+                    op_info[cur_node_addr]["output_height"],
+                ]
+            )
+            #created_outputs.append(output_node)
+            output_node_dict[cur_node_addr] = output_node
+            prev_output_node = prev_output_node[0]
+            #created_inputs.append(prev_output_node)
 
         elif cur_node_info["op"] == AST_OP.AVGPOOL:
             assert len(prev_output) == 1
@@ -193,6 +294,20 @@ def export_onnx(lifted_ast_map, adj_map, op_info, filename="export_onnx"):
             )
             created_nodes.extend(nodes)
             output_dict[cur_node_addr] = nodes[0].output[0]
+            output_node = make_tensor_value_info(
+                output_dict[cur_node_addr], 
+                TensorProto.FLOAT, 
+                [
+                    1,  # batch size
+                    op_info[cur_node_addr]["output_channel"],
+                    op_info[cur_node_addr]["output_width"],
+                    op_info[cur_node_addr]["output_height"],
+                ]
+            )
+            #created_outputs.append(output_node)
+            output_node_dict[cur_node_addr] = output_node
+            prev_output_node = prev_output_node[0]
+            #created_inputs.append(prev_output_node)
 
         elif cur_node_info["op"] == AST_OP.SOFTMAX:
             assert len(prev_output) == 1
@@ -203,6 +318,14 @@ def export_onnx(lifted_ast_map, adj_map, op_info, filename="export_onnx"):
             nodes = make_softmax(node_name, prev_output, node_name + "_output")
             created_nodes.extend(nodes)
             output_dict[cur_node_addr] = nodes[0].output[0]
+            output_node = make_tensor_value_info(
+                output_dict[cur_node_addr], 
+                TensorProto.FLOAT, [1, cur_node_info["output_size"]]
+            )
+            #created_outputs.append(output_node)
+            output_node_dict[cur_node_addr] = output_node
+            prev_output_node = prev_output_node[0]
+            #created_inputs.append(prev_output_node)
 
         else:
             assert False
@@ -210,11 +333,11 @@ def export_onnx(lifted_ast_map, adj_map, op_info, filename="export_onnx"):
     assert len(incoming_edge_map) == 0
 
     # TODO: output node
-    output_node = make_tensor_value_info(
-        output_dict[cur_node_addr], TensorProto.FLOAT, [1, cur_node_info["output_size"]]
-    )
+    output_node = output_node_dict[cur_node_addr]
     created_outputs.append(output_node)
-
+    #print("Nodes: ",created_nodes)
+    #print("inputs: ",created_inputs)
+    #print("outputs: ",created_outputs)
     graph = make_graph(
         created_nodes, "test", created_inputs, created_outputs, created_inits
     )
@@ -223,9 +346,10 @@ def export_onnx(lifted_ast_map, adj_map, op_info, filename="export_onnx"):
     print("pass graph-check")
 
     model = helper.make_model(graph, producer_name="onnx-builder")
-
+    model = shape_inference.infer_shapes(model)
     check_model(model)
     print("pass model-check")
+    print(model)
 
     onnx.save_model(model, filename)
 
@@ -270,6 +394,8 @@ def make_conv(
     #     W = kernel_weight.astype(np.float32).flatten()
 
     # node
+    weight_init = numpy_helper.from_array(kernel_weight, name=node_name + "_weights")
+    bias_init = numpy_helper.from_array(bias, name=node_name + "_bias")
     conv_node = helper.make_node(
         op_type="Conv",
         name=node_name,
@@ -281,22 +407,23 @@ def make_conv(
     )
 
     # weight
-    weight_input = make_tensor_value_info(
-        node_name + "_weights",
-        TensorProto.FLOAT,
-        [in_channel, out_channel, k_w, k_h],
-    )
-    weight_init = numpy_helper.from_array(kernel_weight, name=node_name + "_weights")
+    #weight_input = make_tensor_value_info(
+    #    node_name + "_weights",
+    #    TensorProto.FLOAT,
+    #    [out_channel, in_channel, k_w, k_h],
+    #)
+    #weight_init = numpy_helper.from_array(kernel_weight, name=node_name + "_weights")
 
     # bias
-    bias_input = make_tensor_value_info(
-        node_name + "_bias",
-        TensorProto.FLOAT,
-        [out_channel],
-    )
-    bias_init = numpy_helper.from_array(bias, name=node_name + "_bias")
+    #bias_input = make_tensor_value_info(
+    #    node_name + "_bias",
+    #    TensorProto.FLOAT,
+    #    [out_channel],
+    #)
+    #bias_init = numpy_helper.from_array(bias, name=node_name + "_bias")
 
-    return [conv_node], [weight_input, bias_input], [weight_init, bias_init]
+    #return [conv_node], [weight_input, bias_input], [weight_init, bias_init]
+    return [conv_node], [weight_init, bias_init], [weight_init, bias_init]
 
 
 def make_gemm(node_name, input_name, output_name, i, j, k, weights, bias):
@@ -308,11 +435,11 @@ def make_gemm(node_name, input_name, output_name, i, j, k, weights, bias):
     """
 
     assert weights.shape == (j, k)
-    weight_input = make_tensor_value_info(
-        node_name + "_weights",
-        TensorProto.FLOAT,
-        [j, k],
-    )
+    #weight_input = make_tensor_value_info(
+    #    node_name + "_weights",
+    #    TensorProto.FLOAT,
+    #    [j, k],
+    #)
     weight_init = numpy_helper.from_array(weights, node_name + "_weights")
 
     if i == 1:
@@ -320,11 +447,11 @@ def make_gemm(node_name, input_name, output_name, i, j, k, weights, bias):
     else:
         assert False
 
-    bias_input = make_tensor_value_info(
-        node_name + "_bias",
-        TensorProto.FLOAT,
-        [k],
-    )
+    #bias_input = make_tensor_value_info(
+    #    node_name + "_bias",
+    #    TensorProto.FLOAT,
+    #    [k],
+    #)
     bias_init = numpy_helper.from_array(bias, node_name + "_bias")
 
     gemm_node = helper.make_node(
@@ -336,7 +463,7 @@ def make_gemm(node_name, input_name, output_name, i, j, k, weights, bias):
         beta=1.0,
     )
 
-    return [gemm_node], [weight_input, bias_input], [weight_init, bias_init]
+    return [gemm_node], [weight_init, bias_init], [weight_init, bias_init]
 
 
 def make_relu(node_name, input_name, output_name):

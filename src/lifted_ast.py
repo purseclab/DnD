@@ -91,6 +91,10 @@ class LiftedAST:
 
         self._unsolved_reg = set()
         self._prepare()
+        if self.ast_expr is not None and self.ast_expr.offset_mem is not None:
+            print("Type: ",self.op_type)
+            print("Lifted ast offset: ",self.ast_expr.offset)
+            print("Lifted ast offset mem: ",self.ast_expr.offset_mem)
 
     def _prepare(self):
         if self.addr_expr is None:
@@ -355,6 +359,7 @@ class LiftedAST:
             attributes["output_size"] = self.col_idx_iv.size()
             attributes["contracted_size"] = self.row_idx_iv.size()
             attributes["input_size"] = 1
+            attributes["output_channel"] = 1
 
         elif self.op_type == AST_OP.MAXPOOL:
             # TODO: infer it from the context
@@ -362,18 +367,42 @@ class LiftedAST:
                 self.kernel_size = 3
             attributes["kernel_shape"] = self.kernel_size
             attributes["stride"] = self.kernel_size
+            attributes["output_height"] = int(
+                (
+                    prev_info[0]["output_height"] - attributes["kernel_shape"]
+                ) / attributes["stride"] + 1
+            )
+            attributes["output_width"] = int(
+                (
+                    prev_info[0]["output_width"] - attributes["kernel_shape"]
+                ) / attributes["stride"] + 1
+            )
+            attributes["output_channel"] = prev_info[0]["output_channel"]
 
         elif self.op_type == AST_OP.ADD:
             attributes["output_height"] = prev_info[0]["output_height"]
             attributes["output_width"] = prev_info[0]["output_width"]
+            attributes["output_channel"] = prev_info[0]["output_channel"]
 
         elif self.op_type == AST_OP.RELU:
             attributes["output_height"] = prev_info[0]["output_height"]
             attributes["output_width"] = prev_info[0]["output_width"]
+            attributes["output_channel"] = prev_info[0]["output_channel"]
 
         elif self.op_type == AST_OP.AVGPOOL:
             attributes["kernel_shape"] = self.kernel_size
             attributes["stride"] = self.kernel_size
+            attributes["output_height"] = int(
+                (
+                    prev_info[0]["output_height"] - attributes["kernel_shape"]
+                ) / attributes["stride"] + 1
+            )
+            attributes["output_width"] = int(
+                (
+                    prev_info[0]["output_width"] - attributes["kernel_shape"]
+                ) / attributes["stride"] + 1
+            )
+            attributes["output_channel"] = prev_info[0]["output_channel"]
 
         elif self.op_type == AST_OP.SOFTMAX:
             return {"output_size": prev_info[0]["output_size"]}
@@ -405,8 +434,18 @@ class LiftedAST:
                     self.input_channel_iv.size(),
                     self.kernel_height_iv.size(),
                     self.kernel_width_iv.size(),
-                )
+                ), dtype=np.float32
             )
+            weights_addr = np.zeros(
+                (
+                    self.output_channel_iv.size(),
+                    self.input_channel_iv.size(),
+                    self.kernel_height_iv.size(),
+                    self.kernel_width_iv.size(),
+                ), dtype=int
+            )
+            print("Extracting weights")
+            print("Weight expr: ",self.weight_expr)
             for output_channel_idx in range(self.output_channel_iv.size()):
                 for input_channel_idx in range(self.input_channel_iv.size()):
                     for kernel_height_idx in range(self.kernel_height_iv.size()):
@@ -427,6 +466,13 @@ class LiftedAST:
                             weight_addr = replace_and_eval(
                                 iv_assignment_list, self.weight_expr, state.solver
                             )
+                            #added to export the adress mapping for patcher API
+                            weights_addr[
+                                output_channel_idx,
+                                input_channel_idx,
+                                kernel_height_idx,
+                                kernel_width_idx,
+                            ] = weight_addr
                             weight_bytes = state.memory.load(weight_addr, 4).args[0]
 
                             weights[
@@ -436,17 +482,32 @@ class LiftedAST:
                                 kernel_width_idx,
                             ] = bytes_to_float(weight_bytes, endian=False)
 
-            bias = np.zeros(self.output_channel_iv.size())
+            print("Extracting bias")
+            bias = np.zeros(self.output_channel_iv.size(),dtype=np.float32)
+            bias_addr_list = np.zeros(self.output_channel_iv.size(), dtype=int)
             if self.ast_expr.offset is not None:
                 for output_channel_idx in range(self.output_channel_iv.size()):
                     bias[output_channel_idx] = bytes_to_float(
                         self.ast_expr.offset[output_channel_idx].args[0]
                     )
+                    bias_addr_list[output_channel_idx] = self.ast_expr.offset_mem[output_channel_idx].args[0]
+                    print(
+                        "extracted offset: ", 
+                        hex(self.ast_expr.offset_mem[output_channel_idx].args[0]),
+                        " -> ",
+                        hex(self.ast_expr.offset[output_channel_idx].args[0])
+                    )
 
-            return weights, bias
+            return weights, bias, weights_addr, bias_addr_list
 
         elif self.op_type == AST_OP.FC:
-            weights = np.zeros((self.row_idx_iv.size(), self.col_idx_iv.size()))
+            weights = np.zeros(
+                (
+                    self.row_idx_iv.size(), self.col_idx_iv.size()
+                ), dtype=np.float32
+            )
+            weights_addr = np.zeros((self.row_idx_iv.size(),
+                self.col_idx_iv.size()), dtype=int)
             for row_idx in range(self.row_idx_iv.size()):
                 for col_idx in range(self.col_idx_iv.size()):
                     iv_assignment_list = [
@@ -456,24 +517,27 @@ class LiftedAST:
                     weight_addr = replace_and_eval(
                         iv_assignment_list, self.weight_expr, state.solver
                     )
+                    weights_addr[row_idx, col_idx] = weight_addr #added to export the adress mapping for patcher API 
                     weight_bytes = state.memory.load(weight_addr, 4).args[0]
                     weights[row_idx, col_idx] = bytes_to_float(
                         weight_bytes, endian=False
                     )
 
-            bias = np.zeros(self.col_idx_iv.size())
+            bias = np.zeros(self.col_idx_iv.size(), dtype=np.float32)
+            bias_addr_list = np.zeros(self.col_idx_iv.size(), dtype=int)
             for col_idx in range(self.col_idx_iv.size()):
                 iv_assignment_list = [(self.col_idx_iv.iv_var, col_idx)]
                 bias_addr = replace_and_eval(
                     iv_assignment_list, self.ast_expr.offset, state.solver
                 )
+                bias_addr_list[col_idx] = bias_addr
                 bias_bytes = state.memory.load(bias_addr, 4).args[0]
                 bias[col_idx] = bytes_to_float(bias_bytes, endian=False)
 
-            return weights, bias
+            return weights, bias, weights_addr, bias_addr_list
 
         else:
-            return None, None
+            return None, None, None, None
 
     def recover(self):
         """ """

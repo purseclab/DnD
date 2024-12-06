@@ -145,6 +145,7 @@ def load(bin_path, dispatch_addr=None, arch=None):
     proj.mem_write_dict = {}
     proj.constant_read_dict = {}
     proj.constant_read_list = []
+    proj.constant_read_mem_list = [] #added to record the address of bias [Soumya]
     proj.constant_dict = {}
 
     # init mem_write_llft_dict

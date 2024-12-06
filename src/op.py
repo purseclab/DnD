@@ -218,11 +218,12 @@ class Sum:
     Note that there could be multiple sum idx.
     """
 
-    def __init__(self, expr, offset, idx_iv):
+    def __init__(self, expr, offset, offset_mem, idx_iv):
         self.op = "sum"
 
         self._expr = expr
         self._offset = offset
+        self._offset_mem = offset_mem
 
         assert isinstance(idx_iv, list)
         self._idx_iv = idx_iv
@@ -255,6 +256,10 @@ class Sum:
     def offset(self):
         return self._offset
 
+    @property
+    def offset_mem(self):
+        return self._offset_mem
+
     def __eq__(self, other) -> bool:
         assert False
 
@@ -280,7 +285,8 @@ class Sum:
 
         # TODO: we should update idx_iv as well
 
-        return Sum(new_expr, self._offset, self._idx_iv)
+        return Sum(new_expr, self._offset, self._offset_mem,self._idx_iv)
+
 
     def update_idx(self, old_iv, new_iv):
         # TODO: should update sub-expr

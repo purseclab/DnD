@@ -1,7 +1,9 @@
 #!/usr/bin/env python
 
-from patcherex import *
-from patcherex.targets import ElfArmMimxrt1052
+#loadDNN("/home/soumya/DnD/binary_samples/evkbimxrt1050_glow_lenet_mnist_release.axf")
+
+from patcherex2 import *
+from patcherex2.targets import ElfArmMimxrt1052
 import struct
 import logging
 

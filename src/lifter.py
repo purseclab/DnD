@@ -108,7 +108,7 @@ def lift_ast_with_ongoing_loop(
         # idx_iv: reduce_term_iv - addr_expr_iv
         idx_iv = [iv for iv in expr_iv if iv not in addr_iv]
 
-        lifted_ast = lift_sum(reduce_term, None, idx_iv, all_ivs)
+        lifted_ast = lift_sum(reduce_term, None, None,idx_iv, all_ivs)
         return lifted_ast
 
     else:
@@ -124,7 +124,7 @@ def lift_ast_with_completed_loop(
     Accumulation here refers to accumulate_completed
     """
     print("[lift_ast_with_completed_loop]")
-    # print("addr_expr: ", addr_expr)
+    print("addr_expr: ", addr_expr)
 
     assert len(completed_iv_list) == 1
     completed_iv_var = completed_iv_list[0][0]
@@ -132,7 +132,7 @@ def lift_ast_with_completed_loop(
 
     if ast_expr.op == "__add__":
         ast_expr_args = flatten_add_expr(ast_expr)
-        # print("ast_expr_args: ", ast_expr_args)
+        print("ast_expr_args: ", ast_expr_args)
 
         # check accumulation and constant
         const = None
@@ -163,7 +163,7 @@ def lift_ast_with_completed_loop(
         offset = None
         if not addr_expr.structurally_match(ast_expr_args[acc_idx]):
             offset = ast_expr_args[acc_idx]
-
+        print("Offset: ",offset)
         # remove acc and constant (optional)
         if const_idx is not None:
             for idx in sorted([const_idx, acc_idx], reverse=True):
@@ -176,7 +176,7 @@ def lift_ast_with_completed_loop(
 
         reduce_ast_expr = reduce(ast_expr_args, completed_iv, completed_iv_var, solver)
 
-        return lift_sum(reduce_ast_expr, offset, [completed_iv], all_ivs)
+        return lift_sum(reduce_ast_expr, offset, None,[completed_iv], all_ivs)
 
     else:
         assert False
@@ -205,6 +205,10 @@ def lift_mem_record(addr, mem_record, solver, all_ivs):
     outer_loop = mem_record.outer_loop
     addr_expr = mem_record.addr
     ast_expr = mem_record.expr
+
+    print("lift_mem_record")
+    print("ast_expr: ",ast_expr)
+    print("addr_expr: ",addr_expr)
 
     completed_loop = [
         loop
@@ -268,6 +272,7 @@ def lift_mem_record(addr, mem_record, solver, all_ivs):
             ast_expr = lift_ast_with_completed_loop(
                 addr_expr, ast_expr, completed_iv_list, all_ivs, solver
             )
+            print("lift_mem_record Offset: ",ast_expr.offset)
         else:
             # If accumulate_ongoing is already flagged, it means that the rerolled expr is executed several times in the completed loop. In this case, we can just modify the reroll(created) IV's loop count. We also need to eliminate the complete IV gracefully.
 
@@ -423,10 +428,12 @@ def reroll(proj, mem_write_lift_list, solver, all_ivs):
         # offset.sort(key=lambda x: x[0])
         # offset = [x[1] for x in offset]
         offset = proj.constant_read_list
-
+        offset_mem = proj.constant_read_mem_list
+        print("Reroll offset mem: ",offset_mem)
+        print("Reroll offset: ",offset)
         # return LiftedAST
         reduce_sum_mul = Sum(
-            Mul(reduce_arg_0, reduce_arg_1), offset, ast_expr_list[0].idx_iv
+            Mul(reduce_arg_0, reduce_arg_1), offset, offset_mem,ast_expr_list[0].idx_iv
         )
         return LiftedAST(reduce_addr, reduce_sum_mul, ivs_dict, solver)
 

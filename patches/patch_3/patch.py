@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 
-from patcherex import *
-from patcherex.targets import ElfArmMimxrt1052
+from patcherex2 import *
+from patcherex2.targets import ElfArmMimxrt1052
 import logging
 
 BIN_PATH = "./evkbimxrt1050_glow_cifar10_new.axf"

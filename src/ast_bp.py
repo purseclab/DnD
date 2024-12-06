@@ -196,6 +196,7 @@ def ast_mem_read_bp(state):
         ):
             print("push to constant_read_list: ", expr)
             state.project.constant_read_list.append(expr)
+            state.project.constant_read_mem_list.append(src_addr)
         return
 
     # mem_read_debug(state)

@@ -58,7 +58,7 @@ def lift_mul(term):
     return Mul(term.args[0], term.args[1])
 
 
-def lift_sum(term, offset, idx_iv, all_ivs):
+def lift_sum(term, offset,offset_mem, idx_iv, all_ivs):
     """
     Given the term, lower bound and upper bound of the sum,
     return the constructed sum op.
@@ -78,7 +78,7 @@ def lift_sum(term, offset, idx_iv, all_ivs):
         return Sum(lift_mul(term), offset, lifted_idx_iv)
         """
 
-        return Sum(lift_mul(term), offset, idx_iv)
+        return Sum(lift_mul(term), offset,offset_mem, idx_iv)
 
     else:
         assert False

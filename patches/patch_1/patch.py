@@ -6,9 +6,9 @@ making the p[1] always larger than p[10].
 """
 
 
-from patcherex import *
-from patcherex.targets import ElfArmMimxrt1052
-from patcherex.components.allocation_managers.allocation_manager import *
+from patcherex2 import *
+from patcherex2.targets import ElfArmMimxrt1052
+from patcherex2.components.allocation_managers.allocation_manager import *
 import logging
 
 BIN_PATH = "./evkbimxrt1050_glow_lenet_mnist_new.axf"

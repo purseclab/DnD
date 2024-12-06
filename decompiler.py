@@ -156,7 +156,7 @@ def decompile(path, outpath):
 
         info = ast.recover_attributes(prev_info)
         info["op"] = ast.op_type
-        weights, bias = ast.extract_weights(state)
+        weights, bias, weights_addr, bias_addr = ast.extract_weights(state)
         info["weights"] = weights
         info["bias"] = bias
         op_info[ast_addr] = info
