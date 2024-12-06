@@ -358,7 +358,7 @@ class Dnn:
 
         new_op_type = self.op_type_map[new_op_type_str]
         required_attr = {}
-        model_name = "tmp/new_op_type_str" + ".onnx"
+        model_name = "tmp/" + new_op_type_str + ".onnx"
 
         if new_op_type == AST_OP.CONV:
 
