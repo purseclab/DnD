@@ -133,24 +133,24 @@ class Operator:
                 self.layer = 1
         return self.layer
 
-    def getReadBuffer(self):
-        print("getting read buffer for: ",self.id)
-        if self.readbuffer[0] is None:
-            print("parent: ",self.parent)
-            if self.parent is not None:
-                print("getting parents writebuffer")
-                self.readbuffer = self.parent.getWritedBuffer()
-        print("Read buffer of ",self.id," -> ",self.readbuffer)
-        return self.readbuffer
+    #def getReadBuffer(self):
+    #    print("getting read buffer for: ",self.id)
+    #    if self.readbuffer[0] is None:
+    #        print("parent: ",self.parent)
+    #        if self.parent is not None:
+    #            print("getting parents writebuffer")
+    #            self.readbuffer = self.parent.getWritedBuffer()
+    #    print("Read buffer of ",self.id," -> ",self.readbuffer)
+    #    return self.readbuffer
 
-    def getWriteBuffer(self):
-        print("getting writebuffer: ",self.id)
-        if self.writebuffer[0] is None:
-            c = list(self.child)[0]
-            if c is not None:
-                self.writebuffer = c.getReadBuffer()
-        print("Write buffer of ",self.id," -> ",self.writebuffer)
-        return self.writebuffer
+    #def getWriteBuffer(self):
+    #    print("getting writebuffer: ",self.id)
+    #    if self.writebuffer[0] is None:
+    #        c = list(self.child)[0]
+    #        if c is not None:
+    #            self.writebuffer = c.getReadBuffer()
+    #    print("Write buffer of ",self.id," -> ",self.writebuffer)
+    #    return self.writebuffer
 
 class NewOp:
     def __init__(self,name,op,onnx_file,obj_file):
@@ -190,6 +190,23 @@ class Dnn:
                     self.op_id_ctr += 1
                 op.child.add(child_op)
                 child_op.parent = op
+                #set the read/write buffer is DnD returns None
+
+                if child_op.readbuffer[0] is None:
+                    child_op.readbuffer[0] = child_op.parent.writebuffer[0]
+
+                if child_op.writebuffer[0] is None:
+                    if child_op.info["op"] == AST_OP.MAXPOOL or child_op.info["op"] == AST_OP.RELU:
+                        in_w = child_op.parent.info["output_width"]
+                        in_h = child_op.parent.info["output_height"]
+                        in_c = child_op.parent.info["output_channel"]
+
+                        in_size = in_c * in_h * in_w * 4
+                        child_op.writebuffer[0] = [ 
+                            child_op.readbuffer[0][0] + in_size 
+                        ]
+
+
                 child_id = child_op.id
                 print("Child: ", child_id, " parent: ",self.op_map[child_id].parent.id)
 
