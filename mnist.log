@@ -1,0 +1,4 @@
+Traceback (most recent call last):
+  File "./decompiler.py", line 175, in <module>
+    decompile(sys.argv[1], sys.argv[2])
+IndexError: list index out of range
