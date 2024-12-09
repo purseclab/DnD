@@ -91,10 +91,10 @@ class LiftedAST:
 
         self._unsolved_reg = set()
         self._prepare()
-        if self.ast_expr is not None and self.ast_expr.offset_mem is not None:
-            print("Type: ",self.op_type)
-            print("Lifted ast offset: ",self.ast_expr.offset)
-            print("Lifted ast offset mem: ",self.ast_expr.offset_mem)
+        #if self.ast_expr is not None and self.ast_expr.offset_mem is not None:
+        #    print("Type: ",self.op_type)
+        #    print("Lifted ast offset: ",self.ast_expr.offset)
+        #    print("Lifted ast offset mem: ",self.ast_expr.offset_mem)
 
     def _prepare(self):
         if self.addr_expr is None:

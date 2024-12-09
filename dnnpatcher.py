@@ -75,7 +75,7 @@ def extractCodeBytes(path_to_obj,target_sym):
             i += 1
             start_addr += 1
 
-    print(asm)
+    #print(asm)
     return asm
 
 class POS(Enum):
@@ -193,7 +193,7 @@ class Dnn:
                 #set the read/write buffer is DnD returns None
 
                 if child_op.readbuffer[0] is None:
-                    child_op.readbuffer[0] = child_op.parent.writebuffer[0]
+                    child_op.readbuffer = child_op.parent.writebuffer
 
                 if child_op.writebuffer[0] is None:
                     if child_op.info["op"] == AST_OP.MAXPOOL or child_op.info["op"] == AST_OP.RELU:
@@ -202,9 +202,10 @@ class Dnn:
                         in_c = child_op.parent.info["output_channel"]
 
                         in_size = in_c * in_h * in_w * 4
-                        child_op.writebuffer[0] = [ 
-                            child_op.readbuffer[0][0] + in_size 
-                        ]
+                        child_op.writebuffer = ( 
+                            [ child_op.readbuffer[0][0] + in_size ],
+                            [ None ] 
+                        )
 
 
                 child_id = child_op.id
@@ -264,11 +265,11 @@ class Dnn:
                     if insn.operands:
                         for operand in insn.operands:
                             target_address = operand.imm
-                            print(
-                                "Found call at: ",
-                                hex(insn.address), "target: ",
-                                hex(target_address)
-                            )
+                            #print(
+                            #    "Found call at: ",
+                            #    hex(insn.address), "target: ",
+                            #    hex(target_address)
+                            #)
                             if target_address == predecessor_op.addr:
                                 asm = asm + "\tpush {R0-R12}\n"
                                 asm = asm + "  bl " + new_op_sym + "\n"
@@ -435,9 +436,13 @@ class Dnn:
             self.new_op = NewOp(new_op_type_str,op,model_name,"tmp/" + new_op_type_str + ".o")
         else:
             assert False
+
+        self.addNewOp()
         return model_name
 
     def addNewOp(self):
+        cmd = "~/glow/build_Debug/bin/model-compiler -backend=CPU -model=" + self.new_op.onnxfile + " -emit-bundle=tmp/ -target=arm -mcpu=cortex-m7"
+        os.system(cmd)
         op_asm = extractCodeBytes(self.new_op.objfile, self.new_op.name)
         tramp_sym, tramp_asm = self.createTrampForNewOp(
             self.new_op.op.parent, 
@@ -464,11 +469,11 @@ class Dnn:
                     if insn.operands:
                         for operand in insn.operands:
                             target_address = operand.imm
-                            print(
-                                "Found call at: ",
-                                hex(insn.address), "target: ",
-                                hex(target_address)
-                            )
+                            #print(
+                            #    "Found call at: ",
+                            #    hex(insn.address), "target: ",
+                            #    hex(target_address)
+                            #)
                             if target_address == self.proj.dispatch_addr:
                                 dispatch_call_site = insn.address
 

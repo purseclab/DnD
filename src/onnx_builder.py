@@ -73,8 +73,8 @@ def export_onnx(lifted_ast_map, adj_map, op_info, filename="export_onnx"):
         prev_output = []
         if len(output_dict) == 0:
             if cur_node_info["op"] == AST_OP.ADD:
-                prev_output.append("inputs_1")
-                prev_output.append("inputs_2")
+                prev_output.append("inputs")
+                prev_output.append("inputs")
             else:
                 prev_output.append("inputs")
         else:
