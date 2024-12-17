@@ -3,13 +3,13 @@ from collections import defaultdict
 import pickle
 import sys
 
-from src.loader import load
-from src.iv_identify import identify_iv
-from src.ast import extract_ast
-from src.lifter import lift
-from src.lifted_ast import LiftedAST, AST_OP
-from src.timeout import timeout
-from src.onnx_builder import export_onnx
+from .src.loader import load
+from .src.iv_identify import identify_iv
+from .src.ast import extract_ast
+from .src.lifter import lift
+from .src.lifted_ast import LiftedAST, AST_OP
+from .src.timeout import timeout
+from .src.onnx_builder import export_onnx
 
 
 def lift_no_loop_func_to_ast(proj, func_addr):
